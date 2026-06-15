@@ -98,6 +98,7 @@ class handler(BaseHTTPRequestHandler):
                 "optimal_leverage": LEVERAGES[opt_idx],
                 "optimal_idx":      opt_idx,
                 "energies":         energies,
+                "returns":          [round(float(r),6) for r in returns],
             })
         except Exception as e:
             body = json.dumps({"error": str(e)})

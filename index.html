@@ -2121,6 +2121,140 @@ function animateStressTest(){
 
 // Call on asset change to update stress cards
 function refreshStressCards(){ updateStressCards(); }
+// ══════════════════════════════════════════════════════════
+// REAL DATA CHART REBUILD
+// API에서 실제 수익률 받으면 모든 차트를 실제 데이터로 교체
+// ══════════════════════════════════════════════════════════
+function rebuildChartsWithRealData(d){
+  const returns = d.returns;
+  const sigma_d = (d.sigma/100) / Math.sqrt(252);
+  const mu_d    = returns.reduce((a,b)=>a+b,0) / returns.length;
+  const n       = returns.length;
+
+  // ── 1. Overview 가격 차트 (실제 수익률로 경로 복원)
+  try{
+    if(charts.ov) charts.ov.destroy();
+    const ctx2 = document.getElementById('ov-chart').getContext('2d');
+    const curPrice = ASSETS[current].price;
+    const prices=[curPrice];
+    for(let i=returns.length-1;i>=0;i--) prices.unshift(prices[0]/(1+returns[i]));
+    const labels2=prices.map((_,i)=>{
+      const dd=new Date(); dd.setDate(dd.getDate()-prices.length+1+i);
+      return dd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    });
+    const col2=ASSETS[current].up?'var(--green)':'var(--red)';
+    charts.ov=new Chart(ctx2,{type:'line',data:{labels:labels2,datasets:[{
+      data:prices.map(p=>Math.round(p*100)/100),
+      borderColor:col2,borderWidth:2,fill:true,
+      backgroundColor:`rgba(${ASSETS[current].up?'0,216,120':'240,56,96'},.06)`,
+      pointRadius:0,tension:0.3
+    }]},options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:'#48536E',font:{size:9,family:'Space Mono'}},grid:{color:'rgba(26,32,56,.8)'}},
+              y:{ticks:{color:'#48536E',font:{size:9,family:'Space Mono'}},grid:{color:'rgba(26,32,56,.8)'}}},
+      responsive:true,maintainAspectRatio:false}});
+  }catch(e){console.warn('ov:',e);}
+
+  // ── 2. BS 정규분포 곡선 (실제 sigma)
+  try{
+    if(charts.bsDist) charts.bsDist.destroy();
+    const ctx2=document.getElementById('bs-dist').getContext('2d');
+    const xs2=[],nd2=[];
+    for(let x=-4;x<=4;x+=0.12){
+      xs2.push(x.toFixed(1));
+      nd2.push(Math.exp(-x*x/2)/Math.sqrt(2*Math.PI)*3);
+    }
+    charts.bsDist=new Chart(ctx2,{type:'line',data:{labels:xs2,datasets:[{
+      data:nd2,borderColor:'var(--green)',borderWidth:2,
+      fill:true,backgroundColor:'rgba(0,216,120,0.08)',pointRadius:0,tension:0.4
+    }]},options:CO});
+  }catch(e){console.warn('bsDist:',e);}
+
+  // ── 3. BS 몬테카를로 (실제 sigma)
+  try{
+    if(charts.bsPaths) charts.bsPaths.destroy();
+    const ctx2=document.getElementById('bs-paths').getContext('2d');
+    const labs=Array.from({length:130},(_,i)=>i);
+    const cols2=['rgba(0,216,120,.7)','rgba(0,200,240,.5)','rgba(144,96,240,.5)','rgba(240,168,0,.4)','rgba(0,200,240,.3)'];
+    const ds=cols2.map(col=>{
+      let v=100,data=[v];
+      for(let j=1;j<130;j++){
+        const u1=Math.random(),u2=Math.random();
+        const z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+        v*=(1+mu_d+sigma_d*z); data.push(Math.max(v,2));
+      }
+      return{data,borderColor:col,borderWidth:1.5,fill:false,pointRadius:0,tension:0.2};
+    });
+    charts.bsPaths=new Chart(ctx2,{type:'line',data:{labels:labs,datasets:ds},options:CO});
+  }catch(e){console.warn('bsPaths:',e);}
+
+  // ── 4. Fat Tail: 실제 히스토그램 vs 정규분포
+  try{
+    if(charts.bdDist) charts.bdDist.destroy();
+    const ctx2=document.getElementById('bd-dist').getContext('2d');
+    const bins=40, minR=Math.min(...returns), maxR=Math.max(...returns);
+    const bw=(maxR-minR)/bins;
+    const xs2=[],nd2=[],act=[];
+    for(let i=0;i<bins;i++){
+      const x=minR+(i+0.5)*bw;
+      xs2.push((x*100).toFixed(1)+'%');
+      const z=(x-mu_d)/sigma_d;
+      nd2.push(Math.exp(-z*z/2)/Math.sqrt(2*Math.PI)/sigma_d*bw);
+      act.push(returns.filter(r=>r>=minR+i*bw&&r<minR+(i+1)*bw).length/n);
+    }
+    const maxV2=Math.max(...nd2,...act)||1;
+    charts.bdDist=new Chart(ctx2,{type:'line',data:{labels:xs2,datasets:[
+      {data:nd2.map(v=>v/maxV2),borderColor:'rgba(0,216,120,.4)',borderDash:[4,3],
+       borderWidth:1.5,fill:false,pointRadius:0,tension:0.3},
+      {data:act.map(v=>v/maxV2),borderColor:'var(--red)',borderWidth:2,
+       fill:true,backgroundColor:'rgba(240,56,96,.12)',pointRadius:0,tension:0.3}
+    ]},options:CO});
+  }catch(e){console.warn('bdDist:',e);}
+
+  // ── 5. Volatility Decay: 실제 수익률로 1× vs 3× 복리
+  try{
+    if(charts.bdDecay) charts.bdDecay.destroy();
+    const ctx2=document.getElementById('bd-decay').getContext('2d');
+    const nn=Math.min(n,100);
+    const labs=Array.from({length:nn},(_,i)=>i);
+    let v1=100,v3=100,dBS2=[100],dR2=[100];
+    for(let i=0;i<nn-1;i++){
+      v1*=(1+returns[i]);      dBS2.push(Math.round(v1*100)/100);
+      v3*=(1+returns[i]*3);   v3=Math.max(v3,0.1); dR2.push(Math.round(v3*100)/100);
+    }
+    charts.bdDecay=new Chart(ctx2,{type:'line',data:{labels:labs,datasets:[
+      {data:dBS2,borderColor:'rgba(0,216,120,.5)',borderDash:[4,3],
+       borderWidth:1.5,fill:false,pointRadius:0,tension:0.2},
+      {data:dR2,borderColor:'var(--red)',borderWidth:2,
+       fill:true,backgroundColor:'rgba(240,56,96,.07)',pointRadius:0,tension:0.2}
+    ]},options:CO});
+  }catch(e){console.warn('bdDecay:',e);}
+
+  // ── 6. CVaR 분포: 실제 수익률 히스토그램 + 5% 꼬리
+  try{
+    if(charts.cvar) charts.cvar.destroy();
+    const ctx2=document.getElementById('cvar-chart').getContext('2d');
+    const bins=40, minR=Math.min(...returns), maxR=Math.max(...returns);
+    const bw=(maxR-minR)/bins;
+    const sorted=[...returns].sort((a,b)=>a-b);
+    const var5=sorted[Math.floor(n*0.05)];
+    const xs2=[],dist2=[],tail2=[];
+    for(let i=0;i<bins;i++){
+      const x=minR+(i+0.5)*bw;
+      xs2.push((x*100).toFixed(1)+'%');
+      const h=returns.filter(r=>r>=minR+i*bw&&r<minR+(i+1)*bw).length/n;
+      dist2.push(h);
+      tail2.push(x<=var5?h:null);
+    }
+    const maxD2=Math.max(...dist2)||1;
+    charts.cvar=new Chart(ctx2,{type:'line',data:{labels:xs2,datasets:[
+      {data:dist2.map(v=>v/maxD2),borderColor:'#48536E',borderWidth:1.5,
+       fill:true,backgroundColor:'rgba(72,83,110,.1)',pointRadius:0,tension:0.3},
+      {data:tail2.map(v=>v?v/maxD2:null),borderColor:'var(--red)',borderWidth:3,
+       fill:true,backgroundColor:'rgba(240,56,96,.22)',pointRadius:0,tension:0.3}
+    ]},options:CO});
+  }catch(e){console.warn('cvar:',e);}
+}
+
 // Vercel /api/* endpoints. Falls back to simulation if unavailable.
 // ══════════════════════════════════════════════════════════
 const API_BASE = '';   // same domain on Vercel
@@ -2200,7 +2334,7 @@ function applyRealAnalysis(d, asset){
   setText('ov-s1', d.sigma+'%');
   setText('ov-s2', d.fat_tail_ratio+'×');
   setText('ov-s3', d.optimal_leverage+'×');
-  // ASSETS 객체에 실제 값 주입 → 기존 애니메이션 자동 반영
+  // ASSETS 객체에 실제 값 주입
   if(ASSETS[asset]){
     ASSETS[asset].vol     = d.sigma+'%';
     ASSETS[asset].prob    = d.bs_prob_profit+'%';
@@ -2214,7 +2348,13 @@ function applyRealAnalysis(d, asset){
     ASSETS[asset].cvarOpt = cvarOpt.toFixed(1)+'%';
     ASSETS[asset].impr    = impr+'%';
   }
-  buildQAOABars();   // 실제 CVaR 기반으로 에너지 바 재빌드
+  buildQAOABars();
+
+  // ── 실제 수익률 데이터로 차트 다시 그리기
+  if(d.returns && d.returns.length > 10){
+    window._realReturns = d.returns;
+    rebuildChartsWithRealData(d);
+  }
 }
 
 function applyRealStress(data){
