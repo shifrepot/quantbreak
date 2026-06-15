@@ -2043,19 +2043,25 @@ function updateStressCards(){
       card.style.borderTopColor = colors[i];
       const hdr = card.querySelector('[style*="letter-spacing:2px"]');
       if(hdr){ hdr.style.color=colors[i]; hdr.textContent=`CASE 0${i+1} · ${c.label.toUpperCase()}`; }
-      const divs = card.querySelectorAll('div[style*="font-size:13px"]');
-      if(divs[0]) divs[0].textContent=c.period;
+      // 날짜: font-size:13px + font-weight:600 div
+      const allDivs = card.querySelectorAll('div');
+      for(const d of allDivs){
+        if(d.style.fontSize==='13px' && d.style.fontWeight==='600'){
+          d.textContent = c.period; break;
+        }
+      }
+      // desc: font-size:11px + color:muted
       const muted = card.querySelectorAll('div[style*="font-size:11px"]');
       if(muted[0]) muted[0].textContent=c.desc;
     }
 
-    setText(id+'-bs',  c.bs+'%');
+    setText(id+'-gbm', c.bs+'%');
     setText(id+'-reg', c.reg+'%');
     setText(id+'-act', c.act+'%');
 
     const bsErr  = Math.abs(c.act - c.bs);
     const regErr = Math.abs(c.act - c.reg);
-    const captured = Math.round((bsErr - regErr) / bsErr * 100);
+    const captured = bsErr > 0 ? Math.round((bsErr - regErr) / bsErr * 100) : 0;
 
     setText(id+'-gbm-err',  bsErr+'%p');
     setText(id+'-reg-err', regErr < 5 ? regErr+'%p ✓' : regErr+'%p');
@@ -2065,10 +2071,10 @@ function updateStressCards(){
     if(vEl){
       if(regErr < 5){
         vEl.style.color='var(--green)';
-        vEl.textContent=`✓ of BS's blind spot detected — best case in this analysis`;
+        vEl.textContent='✓ of GBM\'s blind spot detected — best case';
       } else {
         vEl.style.color='var(--muted)';
-        vEl.textContent=`of BS's blind spot detected by Regime model`;
+        vEl.textContent='of GBM\'s blind spot detected by Regime model';
       }
     }
   });
@@ -2381,49 +2387,77 @@ function applyRealStress(data){
   const ids = ['sc0','sc1','sc2'];
   data.cases.forEach((c, i)=>{
     if(i > 2 || c.error) return;
-    const id = ids[i];
-    // 숫자 업데이트
-    setText(id+'-gbm',  (c.bs_cvar    || '—')+'%');
-    setText(id+'-reg', (c.regime_cvar|| '—')+'%');
-    setText(id+'-act', (c.actual     || '—')+'%');
+    const id  = ids[i];
+    const card = document.getElementById('sc-'+i);
+
+    // 카드 헤더 — period 필드 우선 사용
+    if(card){
+      const hdr = card.querySelector('[style*="letter-spacing:2px"]');
+      if(hdr && c.name) hdr.textContent = `CASE 0${i+1} · ${c.name.toUpperCase()}`;
+
+      // 날짜: period 필드 (stress.py가 내려주는 값)
+      const periodText = c.period || '';
+      const allDivs = card.querySelectorAll('div');
+      for(const d of allDivs){
+        if(d.style.fontSize==='13px' && d.style.fontWeight==='600'){
+          if(periodText) d.textContent = periodText;
+          break;
+        }
+      }
+    }
+
+    // 숫자
+    setText(id+'-gbm', (c.bs_cvar     != null ? c.bs_cvar     : '—')+'%');
+    setText(id+'-reg', (c.regime_cvar != null ? c.regime_cvar : '—')+'%');
+    setText(id+'-act', (c.actual      != null ? c.actual      : '—')+'%');
+
     // 언더에스티메이트
     if(c.bs_underestimate != null){
-      setText(id+'-gbm-err',  c.bs_underestimate+'%p');
+      setText(id+'-gbm-err', c.bs_underestimate+'%p');
       setText(id+'-reg-err', c.regime_underestimate < 5
         ? c.regime_underestimate+'%p ✓'
         : c.regime_underestimate+'%p');
+
+      const maxErr = Math.max(c.bs_underestimate, c.regime_underestimate||0, 1);
+      const gbmBar = document.getElementById(id+'-gbm-bar');
+      const regBar = document.getElementById(id+'-reg-bar');
+      if(gbmBar) gbmBar.style.width = Math.min(c.bs_underestimate/maxErr*100,100)+'%';
+      if(regBar) regBar.style.width = Math.min((c.regime_underestimate||0)/maxErr*100,100)+'%';
     }
+
     // Captured
     if(c.additional_captured != null){
       setText(id+'-captured', c.additional_captured+'%');
       const vEl = document.getElementById(id+'-verdict');
       if(vEl){
-        if(c.regime_underestimate < 5){
+        if((c.regime_underestimate||99) < 5){
           vEl.style.color='var(--green)';
-          vEl.textContent='✓ of BS\'s blind spot detected — best case';
+          vEl.textContent='✓ of GBM\'s blind spot detected — best case';
         } else {
           vEl.style.color='var(--muted)';
-          vEl.textContent='of BS\'s blind spot detected by Regime model';
+          vEl.textContent='of GBM\'s blind spot detected by Regime model';
         }
       }
     }
-    // 카드 헤더 이름
-    const card = document.getElementById('sc-'+i);
-    if(card){
-      const hdr = card.querySelector('[style*="letter-spacing:2px"]');
-      if(hdr) hdr.textContent = `CASE 0${i+1} · ${c.name.toUpperCase()}`;
-      const divs = card.querySelectorAll('div[style*="font-size:13px"]');
-      if(divs[0]) divs[0].textContent = `${c.train_end} → ${c.crash_end}`;
-    }
   });
-  // 요약
+
+  // 요약 — API는 avg_bs_underestimate 키 사용
   if(data.summary){
     const s = data.summary;
-    setText('avg-gbm-err',   (s.avg_gbm_underestimate  ||'—')+'%p');
-    setText('avg-reg-err',  (s.avg_regime_underestimate||'—')+'%p');
-    setText('avg-captured', (s.avg_additional_captured ||'—')+'%');
+    setText('avg-gbm-err',  (s.avg_bs_underestimate    != null ? s.avg_bs_underestimate    : '—')+'%p');
+    setText('avg-reg-err',  (s.avg_regime_underestimate != null ? s.avg_regime_underestimate : '—')+'%p');
+    setText('avg-captured', (s.avg_additional_captured  != null ? s.avg_additional_captured  : '—')+'%');
+
+    setTimeout(()=>{
+      const bBar = document.getElementById('avg-gbm-bar');
+      const rBar = document.getElementById('avg-reg-bar');
+      const cBar = document.getElementById('avg-captured-bar');
+      if(bBar) bBar.style.width = Math.min(s.avg_bs_underestimate||0, 100)+'%';
+      if(rBar) rBar.style.width = Math.min(s.avg_regime_underestimate||0, 100)+'%';
+      if(cBar) cBar.style.width = Math.min(Math.max(s.avg_additional_captured||0,0), 100)+'%';
+    }, 300);
   }
-  // 바 애니메이션
+
   animateStressTest();
 }
 
