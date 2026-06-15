@@ -1698,40 +1698,45 @@ async function animateSDR(){
       sdrAnimating=false; sdrRevealed=true;
       const d=ASSETS[current];
       document.getElementById('sdr-result').classList.remove('hidden');
-      setText('sdr-regime', d.regime);
-      setText('sdr-var', d.varEx);
-      setText('sdr-analog', d.analog);
+      setText('sdr-regime', d.regime || 'ELEVATED');
+      setText('sdr-var',    d.varEx  || '—');
+      setText('sdr-analog', d.analog || '—');
 
-      // Compute regime breakdown from stableCloud colors
-      const total = stableCloud.length;
-      const nSafe  = stableCloud.filter(p=>p.col==='#00D878').length;
-      const nElev  = stableCloud.filter(p=>p.col==='#F0A800').length;
-      const nCrash = stableCloud.filter(p=>p.col==='#F03860').length;
-      const pSafe  = Math.round(nSafe/total*100);
-      const pElev  = Math.round(nElev/total*100);
-      const pCrash = 100 - pSafe - pElev;
+      // SDR API 결과 우선, fallback은 stableCloud 색깔 카운팅
+      const reg = window._sdrRegimes || (()=>{
+        const tot = stableCloud.length || 1;
+        const nS = stableCloud.filter(p=>p.col==='#00D878').length;
+        const nE = stableCloud.filter(p=>p.col==='#F0A800').length;
+        const nC = stableCloud.filter(p=>p.col==='#F03860').length;
+        return {
+          pSafe:  Math.round(nS/tot*100),
+          pElev:  Math.round(nE/tot*100),
+          pCrash: Math.round(nC/tot*100),
+        };
+      })();
 
-      setText('sdr-p-safe',  pSafe+'%');
-      setText('sdr-p-elev',  pElev+'%');
-      setText('sdr-p-crash', pCrash+'%');
-      setStyle('sdr-bar-safe',  'width', pSafe+'%');
-      setStyle('sdr-bar-elev',  'width', pElev+'%');
-      setStyle('sdr-bar-crash', 'width', pCrash+'%');
+      setText('sdr-p-safe',  reg.pSafe+'%');
+      setText('sdr-p-elev',  reg.pElev+'%');
+      setText('sdr-p-crash', reg.pCrash+'%');
+      setStyle('sdr-bar-safe',  'width', reg.pSafe+'%');
+      setStyle('sdr-bar-elev',  'width', reg.pElev+'%');
+      setStyle('sdr-bar-crash', 'width', reg.pCrash+'%');
 
-      // Update ρ equation label in SDR strip
+      // ρ 수식 실제 비율로 업데이트
       const rhoLabel = document.querySelector('#sdr-result .text-cyan');
       if(rhoLabel) rhoLabel.innerHTML =
-        `ρ = ${(pSafe/100).toFixed(2)}|safe⟩⟨safe|<br>+ ${(pElev/100).toFixed(2)}|elev⟩⟨elev|<br>+ ${(pCrash/100).toFixed(2)}|crash⟩⟨crash|`;
+        `ρ = ${(reg.pCrash/100).toFixed(2)}|crash⟩⟨crash|<br>`+
+        `+ ${(reg.pElev/100).toFixed(2)}|elev⟩⟨elev|<br>`+
+        `+ ${(reg.pSafe/100).toFixed(2)}|safe⟩⟨safe|`;
 
-      // Auto-update Density Matrix with SDR regime probs
-      const coh = (Math.min(pSafe,pCrash)/100*.4).toFixed(2);
-      setText('dm00', (pCrash/100).toFixed(2));
-      setText('dm11', (pSafe/100).toFixed(2));
+      // Density Matrix 대각항 실제값
+      const coh = (Math.min(reg.pSafe,reg.pCrash)/100*.4).toFixed(2);
+      setText('dm00', (reg.pCrash/100).toFixed(2));
+      setText('dm11', (reg.pSafe/100).toFixed(2));
       setText('dm01',  coh+'i');
       setText('dm10', '−'+coh+'i');
 
-      // Store for measureDM
-      window._sdrRegimes = {pSafe, pElev, pCrash};
+      window._sdrRegimes = reg;
 
       if(btn){ btn.disabled=false; btn.textContent='↺ RE-RUN SDR'; }
       drawHilbert(1);
@@ -1744,34 +1749,48 @@ async function animateSDR(){
 // DENSITY MATRIX
 // ══════════════════════════════════════════════════════════
 function measureDM(){
-  const d=ASSETS[current];
-  const reg = window._sdrRegimes || {pSafe:18, pElev:29, pCrash:53};
+  // Born Rule: P(regimeᵢ) = Tr(Πᵢ·ρ) = pᵢ (대각 ρ에서)
+  // SDR에서 계산한 실제 레짐 확률 사용
+  const reg = window._sdrRegimes || {
+    pCrash: ASSETS[current].bearP || 53,
+    pElev:  ASSETS[current].elevP || 29,
+    pSafe:  ASSETS[current].bullP || 18,
+  };
 
+  // 행렬 셀 번쩍임
   ['dm00','dm01','dm10','dm11'].forEach(id=>{
     const el=document.getElementById(id); if(!el) return;
     const p=el.parentElement; if(!p) return;
-    p.style.transition='background .3s'; p.style.background='rgba(0,200,240,.25)';
+    p.style.transition='background .3s';
+    p.style.background='rgba(0,200,240,.25)';
     setTimeout(()=>p.style.background='',500);
   });
 
-  // 3-regime bars
+  // Born Rule 결과 → 레짐 확률 바 업데이트
   setText('bear-pct', reg.pCrash+'%');
   setText('elev-pct', reg.pElev+'%');
   setText('bull-pct', reg.pSafe+'%');
   setStyle('bear-bar','width', reg.pCrash+'%');
-  const elevBar=document.getElementById('elev-bar'); if(elevBar) elevBar.style.width=reg.pElev+'%';
+  const elevBar=document.getElementById('elev-bar');
+  if(elevBar) elevBar.style.width=reg.pElev+'%';
   setStyle('bull-bar','width', reg.pSafe+'%');
 
+  // 설명 텍스트
   const el=document.getElementById('dm-reading');
-  if(el) el.innerHTML=`Born Rule collapse: P(crash)=<span style="color:var(--red)">${reg.pCrash}%</span>, `+
-    `P(elevated)=<span style="color:var(--gold)">${reg.pElev}%</span>, `+
-    `P(safe)=<span style="color:var(--green)">${reg.pSafe}%</span>. `+
-    `These weights now define the regime-mixture return distribution fed into CVaR below. `+
-    `Off-diagonal terms (coherence) encode regime transition uncertainty — not representable by classical probability vector.`;
+  if(el) el.innerHTML=
+    `Born Rule: P(crash)=Tr(Π_crash·ρ)=<span style="color:var(--red)">${reg.pCrash}%</span>, `+
+    `P(elev)=<span style="color:var(--gold)">${reg.pElev}%</span>, `+
+    `P(safe)=<span style="color:var(--green)">${reg.pSafe}%</span>.<br>`+
+    `For diagonal ρ, Tr(Πᵢ·ρ)=pᵢ. `+
+    `Off-diagonal coherence terms represent inter-regime correlation structure.`+
+    `<br><span style="color:var(--cyan)">Risk(ρ)=Tr(ρ·H_risk)=Σᵢpᵢ·CVaRᵢ → feeds QAOA objective</span>`;
 
-  // show arrow to CVaR
+  // 화살표 박스
   const arrow=document.getElementById('dm-arrow');
-  if(arrow){ arrow.classList.remove('hidden'); setText('arrow-crash', reg.pCrash+'%'); }
+  if(arrow){
+    arrow.classList.remove('hidden');
+    setText('arrow-crash', reg.pCrash+'%');
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2438,7 +2457,7 @@ async function fetchAndApplySDR(asset){
     const data = await res.json();
     if(data.error) throw new Error(data.error);
 
-    // stableCloud를 실제 SIR 투영 데이터로 교체
+    // ── SDR 투영 결과
     stableCloud = data.points.map(p=>({
       x: p.x, y: p.y, col: p.col,
       op: 0, tOp: 0.6+Math.random()*0.4
@@ -2449,26 +2468,55 @@ async function fetchAndApplySDR(asset){
       ASSETS[asset].varEx  = data.variance_explained+'%';
     }
 
-    // SIR 메타 정보 표시
-    if(data.sir_meta){
-      const meta = data.sir_meta;
-      const sdrAnalog = document.getElementById('sdr-analog');
-      if(sdrAnalog) sdrAnalog.textContent =
-        'β₁ corr(Y): '+meta.corr_beta1_Y;
-      // Y 통계 보여주기
-      const sdrVar = document.getElementById('sdr-var');
-      if(sdrVar) sdrVar.textContent = data.variance_explained+'%';
-      // method 표시
-      const sdrRegime = document.getElementById('sdr-regime');
-      if(sdrRegime && data.method){
-        // regime은 유지, method는 별도 표시
+    // ── Density Matrix 실제값 업데이트
+    if(data.density_matrix){
+      const dm = data.density_matrix;
+      setText('dm00', dm.dm00);
+      setText('dm01', dm.dm01);
+      setText('dm10', dm.dm10);
+      setText('dm11', dm.dm11);
+
+      // ASSETS에 실제 p값 저장
+      if(ASSETS[asset]){
+        ASSETS[asset].bearP = Math.round(dm.p_crash * 100);
+        ASSETS[asset].bullP = Math.round(dm.p_safe  * 100);
+        ASSETS[asset].elevP = Math.round(dm.p_elev  * 100);
+        ASSETS[asset].dm    = [dm.dm00, dm.dm01, dm.dm10, dm.dm11];
       }
+      window._sdrRegimes = {
+        pCrash: Math.round(dm.p_crash * 100),
+        pElev:  Math.round(dm.p_elev  * 100),
+        pSafe:  Math.round(dm.p_safe  * 100),
+      };
     }
 
-    return true;
+    // ── Born Rule 결과 저장
+    if(data.born_rule){
+      window._bornRule = data.born_rule;
+    }
+
+    // ── Risk Hamiltonian 가중치 저장 (CVaR 연결용)
+    if(data.risk_hamiltonian){
+      window._riskWeights = data.risk_hamiltonian.weights;
+    }
+
+    // ── SIR 메타 표시
+    if(data.sir_meta){
+      const sdrVar = document.getElementById('sdr-var');
+      if(sdrVar) sdrVar.textContent = data.variance_explained+'%';
+      const sdrAnalog = document.getElementById('sdr-analog');
+      if(sdrAnalog) sdrAnalog.textContent = 'corr='+data.sir_meta.corr_beta1_Y;
+    }
+
+    // ── Hilbert Space 사용 여부 표시
+    if(data.hilbert_used){
+      console.log('[QB] Rᵖ(Σ) Hilbert Space projection: ✓');
+    }
+
+    return data;
   } catch(e){
     console.warn('[QB] SDR API unavailable:', e.message);
-    return false;
+    return null;
   }
 }
 

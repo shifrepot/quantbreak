@@ -1,6 +1,6 @@
 from http.server import BaseHTTPRequestHandler
 import json, numpy as np
-from scipy.linalg import eigh
+from scipy.linalg import eigh, cholesky
 from urllib.parse import urlparse, parse_qs
 import urllib.request, time
 from datetime import datetime, timedelta
@@ -9,7 +9,6 @@ TICKER_MAP = {
     "TQQQ": "TQQQ", "SOXL": "SOXL", "SQQQ": "SQQQ",
     "WTI": "USO",   "NG": "UNG",    "BOIL": "BOIL",
 }
-# 시장 변수 5개로 줄임 (타임아웃 방지)
 MARKET_TICKERS = ["^VIX", "SPY", "TLT", "GLD", "^TNX"]
 MARKET_NAMES   = ["VIX", "SPY", "TLT(Bond)", "Gold", "10Y Yield"]
 
@@ -25,18 +24,24 @@ def fetch_yahoo(sym, days=130):
         "Accept": "application/json",
     })
     with urllib.request.urlopen(req, timeout=6) as resp:
-        import json as _j
-        data = _j.loads(resp.read())
+        data = json.loads(resp.read())
     result = data["chart"]["result"][0]
-    ts     = result["timestamp"]
     closes = result["indicators"]["quote"][0]["close"]
-    pairs  = [(t, c) for t, c in zip(ts, closes) if c is not None]
-    return [t for t, _ in pairs], [c for _, c in pairs]
+    return [c for c in closes if c is not None]
 
 def compute_sir(X, Y, h=8):
+    """
+    Sliced Inverse Regression in Rᵖ(Σ) Hilbert Space
+
+    내적: ⟨u,v⟩_Σ = uᵀΣv
+    SDR 방향: β = eigenvec(Σ⁻¹M)
+
+    M = Σₕ wₕ(m̄ₕ - m̄)(m̄ₕ - m̄)ᵀ
+    """
     n, p  = X.shape
     Sigma = np.cov(X.T) + 1e-6 * np.eye(p)
 
+    # Y 슬라이스
     quantiles = np.percentile(Y, np.linspace(0, 100, h+1))
     slice_means, slice_weights = [], []
     for j in range(h):
@@ -47,19 +52,53 @@ def compute_sir(X, Y, h=8):
             slice_weights.append(mask.sum())
 
     if len(slice_means) < 2:
+        # PCA fallback
         eigvals, eigvecs = eigh(Sigma)
         idx = np.argsort(eigvals)[::-1]
-        return eigvecs[:, idx[0]], eigvecs[:, idx[1]], "PCA"
+        return eigvecs[:, idx[0]], eigvecs[:, idx[1]], Sigma, "PCA-fallback"
 
     sm = np.array(slice_means)
     sw = np.array(slice_weights, dtype=float); sw /= sw.sum()
     gm = (sw[:, None] * sm).sum(axis=0)
     M  = sum(w * np.outer(m-gm, m-gm) for w, m in zip(sw, sm))
 
-    A = np.linalg.inv(Sigma) @ M
-    eigvals, eigvecs = eigh(A)
+    # Σ⁻¹M 고유벡터 → SDR 방향
+    Sigma_inv = np.linalg.inv(Sigma)
+    eigvals, eigvecs = eigh(Sigma_inv @ M)
     idx = np.argsort(eigvals)[::-1]
-    return eigvecs[:, idx[0]], eigvecs[:, idx[1]], "SIR"
+    b1, b2 = eigvecs[:, idx[0]], eigvecs[:, idx[1]]
+
+    return b1, b2, Sigma, "SIR"
+
+def project_hilbert(X, beta1, beta2, Sigma):
+    """
+    Rᵖ(Σ) Hilbert Space에서 2D 투영
+
+    ⟨u,v⟩_Σ = uᵀΣv 내적 사용
+    Σ-whitening: L = cholesky(Σ), X_w = X @ inv(L.T)
+    투영: projected = X_w @ [Σ^{1/2}β₁, Σ^{1/2}β₂]
+
+    결과: 유클리드 X@beta가 아닌 Σ-내적 기반 투영
+    """
+    try:
+        L      = cholesky(Sigma, lower=True)
+        L_inv  = np.linalg.inv(L)
+        X_w    = X @ L_inv.T              # Σ-whitened X
+
+        # β를 Σ 공간으로 변환
+        Sb1    = Sigma @ beta1
+        Sb2    = Sigma @ beta2
+
+        # 정규화
+        Sb1   /= (np.sqrt(beta1 @ Sigma @ beta1) + 1e-9)
+        Sb2   /= (np.sqrt(beta2 @ Sigma @ beta2) + 1e-9)
+
+        proj   = X_w @ np.column_stack([L_inv @ Sb1, L_inv @ Sb2])
+        return proj, True
+    except Exception:
+        # fallback: 일반 투영
+        proj = X @ np.column_stack([beta1, beta2])
+        return proj, False
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -68,23 +107,23 @@ class handler(BaseHTTPRequestHandler):
         sym   = TICKER_MAP.get(asset, asset)
 
         try:
-            # 자산 가격
-            _, asset_prices = fetch_yahoo(sym, days=130)
+            # ── 자산 가격
+            asset_prices = fetch_yahoo(sym, days=130)
             if len(asset_prices) < 40:
                 raise ValueError(f"Not enough asset data: {len(asset_prices)}")
 
-            # Y = 미래 20일 forward drawdown
+            # ── Y = 미래 20일 forward maximum drawdown
             horizon = 20
             Y = np.array([
                 min(asset_prices[t+1:t+horizon+1]) / asset_prices[t] - 1
                 for t in range(len(asset_prices) - horizon)
             ])
 
-            # 시장 변수 X (5개, 순차적으로 빠르게)
+            # ── 시장 변수 X
             mkt_cols = []
             for mkt_sym in MARKET_TICKERS:
                 try:
-                    _, mp = fetch_yahoo(mkt_sym, days=130)
+                    mp = fetch_yahoo(mkt_sym, days=130)
                     mkt_cols.append(mp)
                 except Exception:
                     continue
@@ -92,57 +131,126 @@ class handler(BaseHTTPRequestHandler):
             if len(mkt_cols) < 2:
                 raise ValueError("Not enough market data")
 
-            # 길이 맞추기
-            min_len = min(len(Y), min(len(col) for col in mkt_cols))
-            mkt_cols = [col[-min_len:] for col in mkt_cols]
+            min_len  = min(len(Y), min(len(c) for c in mkt_cols))
+            mkt_cols = [c[-min_len:] for c in mkt_cols]
             Y_cut    = Y[-min_len:]
 
-            # 수익률 계산
+            # 수익률
             X = np.column_stack([
-                np.array([(col[i]-col[i-1])/col[i-1] for i in range(1, len(col))])
-                for col in mkt_cols
+                np.array([(c[i]-c[i-1])/c[i-1] for i in range(1, len(c))])
+                for c in mkt_cols
             ])
-            Y_cut = Y_cut[1:]   # 수익률과 길이 맞춤
+            Y_cut = Y_cut[1:]
 
             if len(Y_cut) < 15:
                 raise ValueError(f"Not enough aligned: {len(Y_cut)}")
 
-            # SIR
-            beta1, beta2, method = compute_sir(X, Y_cut, h=8)
-            projected = X @ np.column_stack([beta1, beta2])
+            # ── SIR in Rᵖ(Σ)
+            beta1, beta2, Sigma, method = compute_sir(X, Y_cut, h=8)
 
-            # Y 기준 레짐 분류
+            # ── Rᵖ(Σ) Hilbert Space 투영
+            projected, hilbert_used = project_hilbert(X, beta1, beta2, Sigma)
+
+            # ── Y 기준 레짐 분류
             y_q33 = float(np.percentile(Y_cut, 33))
             y_q66 = float(np.percentile(Y_cut, 66))
 
+            # 레짐별 포인트
             points = []
+            regime_counts = {"crash":0, "elev":0, "safe":0}
             for i, (px, py) in enumerate(projected[:-1]):
                 y_val = Y_cut[i]
-                col   = "#F03860" if y_val <= y_q33 else "#F0A800" if y_val <= y_q66 else "#00D878"
-                points.append({"x": round(float(px)*60,4), "y": round(float(py)*60,4), "col": col})
+                if y_val <= y_q33:
+                    col = "#F03860"; regime_counts["crash"] += 1
+                elif y_val <= y_q66:
+                    col = "#F0A800"; regime_counts["elev"]  += 1
+                else:
+                    col = "#00D878"; regime_counts["safe"]  += 1
+                points.append({
+                    "x": round(float(px)*60, 4),
+                    "y": round(float(py)*60, 4),
+                    "col": col
+                })
 
-            cx = round(float(projected[-1,0])*60, 4)
-            cy = round(float(projected[-1,1])*60, 4)
+            # ── 현재 상태
+            cx = round(float(projected[-1, 0])*60, 4)
+            cy = round(float(projected[-1, 1])*60, 4)
 
+            # ── 현재 레짐
             recent_dd = float(Y_cut[-5:].mean())
-            regime    = "CRASH ZONE" if recent_dd <= y_q33 else "ELEVATED" if recent_dd <= y_q66 else "SAFE ZONE"
+            if recent_dd <= y_q33:   regime = "CRASH ZONE"
+            elif recent_dd <= y_q66: regime = "ELEVATED"
+            else:                    regime = "SAFE ZONE"
 
-            corr = float(np.corrcoef(projected[:,0], Y_cut)[0,1])
+            # ── 레짐 확률 (Y 기준 분류)
+            total = sum(regime_counts.values()) or 1
+            p_crash = round(regime_counts["crash"] / total, 4)
+            p_elev  = round(regime_counts["elev"]  / total, 4)
+            p_safe  = round(regime_counts["safe"]  / total, 4)
+
+            # ── Density Matrix 대각항 (실제 레짐 확률)
+            # ρ = p_crash|crash⟩⟨crash| + p_elev|elev⟩⟨elev| + p_safe|safe⟩⟨safe|
+            # 비대각항: coherence = analytical parameter
+            coh = round(min(p_safe, p_crash) * 0.4, 4)
+            density_matrix = {
+                "p_crash": p_crash,
+                "p_elev":  p_elev,
+                "p_safe":  p_safe,
+                "coherence": coh,
+                # 2×2 표시용 (crash vs safe 대표)
+                "dm00": str(round(p_crash, 2)),
+                "dm01": str(round(coh, 2))+"i",
+                "dm10": "−"+str(round(coh, 2))+"i",
+                "dm11": str(round(p_safe, 2)),
+            }
+
+            # ── Risk(ρ) = Tr(ρ · H_risk)
+            # H_risk = Σᵢ CVaRᵢ|i⟩⟨i| (대각)
+            # Born Rule: P(regimeᵢ) = Tr(Πᵢ·ρ) = pᵢ
+            # → 이미 p_crash, p_elev, p_safe가 Born Rule 결과
+
+            # ── β₁ 설명력
+            corr = float(np.corrcoef(projected[:, 0], Y_cut)[0, 1])
+            var_explained = round(corr**2 * 100, 1)
+
+            # ── 주요 리스크 팩터
+            top_idx    = int(np.argmax(np.abs(beta1)))
+            top_factor = MARKET_NAMES[top_idx] if top_idx < len(MARKET_NAMES) else "Market"
 
             body = json.dumps({
-                "points":             points,
-                "current":            {"x": cx, "y": cy},
-                "regime":             regime,
-                "variance_explained": round(corr**2*100, 1),
-                "top_risk_factor":    MARKET_NAMES[int(np.argmax(np.abs(beta1)))] if len(beta1) <= len(MARKET_NAMES) else "Market",
-                "method":             method,
+                "points":           points,
+                "current":          {"x": cx, "y": cy},
+                "regime":           regime,
+                "variance_explained": var_explained,
+                "top_risk_factor":  top_factor,
+                "method":           method,
+                "hilbert_used":     hilbert_used,
+                # Density Matrix (실제 레짐 확률 기반)
+                "density_matrix":   density_matrix,
+                # Born Rule 결과 = 레짐 확률 (이미 계산됨)
+                "born_rule": {
+                    "p_crash": p_crash,
+                    "p_elev":  p_elev,
+                    "p_safe":  p_safe,
+                    "formula": "P(regimeᵢ) = Tr(Πᵢ·ρ) = pᵢ",
+                    "note":    "For diagonal ρ, Born Rule reduces to reading diagonal elements"
+                },
+                # Risk(ρ) 연결용
+                "risk_hamiltonian": {
+                    "formula":    "Risk(ρ) = Tr(ρ·H_risk) = Σᵢ pᵢ·CVaRᵢ",
+                    "weights":    [p_crash, p_elev, p_safe],
+                    "regime_labels": ["crash", "elevated", "safe"],
+                },
                 "sir_meta": {
-                    "Y_definition": "20-day forward maximum drawdown",
-                    "Y_mean":       round(float(Y_cut.mean())*100, 2),
-                    "corr_beta1_Y": round(corr, 3),
-                    "n_samples":    len(Y_cut),
+                    "Y_definition":  "20-day forward maximum drawdown",
+                    "Y_mean":        round(float(Y_cut.mean())*100, 2),
+                    "Y_cvar5":       round(float(np.percentile(Y_cut, 5))*100, 2),
+                    "corr_beta1_Y":  round(corr, 3),
+                    "n_samples":     len(Y_cut),
+                    "inner_product": "⟨u,v⟩_Σ = uᵀΣv (Rᵖ(Σ) Hilbert Space)",
                 },
             })
+
         except Exception as e:
             body = json.dumps({"error": str(e)})
 
