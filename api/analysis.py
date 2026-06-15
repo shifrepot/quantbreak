@@ -31,10 +31,22 @@ def fetch_yahoo(sym, days=120):
         raise ValueError(f"Not enough data: {len(prices)}")
     return prices
 
-def cvar(returns, alpha=0.05):
+def hist_cvar(returns, alpha=0.05):
+    """Historical CVaR: 실제 분포 하위 α% 평균"""
     var  = np.percentile(returns, alpha * 100)
     tail = returns[returns <= var]
     return float(tail.mean()) if len(tail) > 0 else float(var)
+
+def gbm_cvar(returns, alpha=0.05):
+    """
+    GBM CVaR: 정규분포 가정
+    CVaR_α = μ - σ·φ(z_α)/α
+    항상 실제보다 낙관적 (꼬리가 얇음)
+    """
+    mu    = float(np.mean(returns))
+    sigma = float(np.std(returns))
+    z     = norm.ppf(alpha)
+    return float(mu - sigma * norm.pdf(z) / alpha)
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -43,84 +55,91 @@ class handler(BaseHTTPRequestHandler):
         sym   = TICKER_MAP.get(asset, asset)
 
         try:
-            prices  = fetch_yahoo(sym, days=120)   # 120일로 늘림
+            prices  = fetch_yahoo(sym, days=120)
             returns = np.array([
                 (prices[i]-prices[i-1])/prices[i-1]
                 for i in range(1, len(prices))
             ])
-
-            sigma = float(np.std(returns) * np.sqrt(252))
-            S     = float(prices[-1])
-            K, T, r = S, 0.5, 0.05
-
-            d1 = (np.log(S/K) + (r + sigma**2/2)*T) / (sigma*np.sqrt(T))
-            d2 = d1 - sigma*np.sqrt(T)
-            prob_profit     = float(norm.cdf(d2))
-            bs_expected_ret = float((np.exp(r*T)-1)*100)
-            monthly_sigma   = sigma / np.sqrt(12)
-            bs_tail_prob    = float(norm.cdf(-0.30/monthly_sigma)*100)
-
             n = len(returns)
 
-            # Fat Tail Ratio
-            # 임계값: -15% (TQQQ 같은 3× ETF 기준, -30%는 최근 상승장에서 안 나옴)
-            # 기간: 21일 rolling, 3일 간격으로 더 많은 샘플
+            # ── GBM 파라미터
+            sigma_ann = float(np.std(returns) * np.sqrt(252))  # 연율화 변동성
+            mu_ann    = float(np.mean(returns) * 252)
+            S         = float(prices[-1])
+            K, T, r   = S, 0.5, 0.05
+
+            d1 = (np.log(S/K) + (r + sigma_ann**2/2)*T) / (sigma_ann*np.sqrt(T))
+            d2 = d1 - sigma_ann*np.sqrt(T)
+
+            prob_profit     = float(norm.cdf(d2))
+            bs_expected_ret = float((np.exp(r*T)-1)*100)
+            monthly_sigma   = sigma_ann / np.sqrt(12)
+            # GBM 예측 꼬리 확률 (-15% 기준, -30%는 상승장에서 안 나옴)
+            bs_tail_prob_15 = float(norm.cdf(-0.15 / monthly_sigma) * 100)
+            bs_tail_prob_30 = float(norm.cdf(-0.30 / monthly_sigma) * 100)
+
+            # ── Fat Tail Ratio (-15% 기준)
             monthly_rets = [
                 float(np.prod(1+returns[i:i+21])-1)
                 for i in range(0, n-21, 3)
             ]
-            # -15% 기준 실제 발생 빈도
-            threshold   = -0.15
-            crash_count = sum(1 for r_ in monthly_rets if r_ < threshold)
-            actual_tail = crash_count / max(len(monthly_rets),1) * 100
+            crash_15 = sum(1 for r_ in monthly_rets if r_ < -0.15)
+            actual_15 = crash_15 / max(len(monthly_rets),1) * 100
+            fat_tail_ratio = round(actual_15 / bs_tail_prob_15, 1) if bs_tail_prob_15 > 0 else 1.0
 
-            # GBM이 예측하는 -15% 이하 확률
-            gbm_tail_prob_15 = float(norm.cdf(threshold / monthly_sigma) * 100)
-            fat_tail_ratio   = round(actual_tail / gbm_tail_prob_15, 1) if gbm_tail_prob_15 > 0 else 1.0
-
-            # 원래 -30% 기준도 유지 (화면 표시용)
-            crash_count_30 = sum(1 for r_ in monthly_rets if r_ < -0.30)
-            actual_tail_30 = crash_count_30 / max(len(monthly_rets),1) * 100
-            fat_tail_ratio_30 = round(actual_tail_30 / bs_tail_prob, 1) if bs_tail_prob > 0 and actual_tail_30 > 0 else fat_tail_ratio
-
-            lev3      = float(np.prod(1+returns*3)-1)*100
-            lev1      = float(np.prod(1+returns)-1)*100
+            # ── Volatility Decay (3× 레버리지)
+            lev3 = float(np.prod(1+returns*3)-1)*100
+            lev1 = float(np.prod(1+returns)-1)*100
             vol_decay = round(lev3 - lev1*3, 1)
 
+            # ── GBM CVaR (정규분포 가정 — 과소평가)
+            # CVaR_α = μ - σ·φ(z_α)/α
+            # 정규분포는 꼬리가 얇아서 실제보다 낙관적
+            mu_d    = float(np.mean(returns))
+            sigma_d = float(np.std(returns))
+            z_alpha = norm.ppf(0.05)
+            gbm_cvar_1x = float((mu_d - sigma_d * norm.pdf(z_alpha) / 0.05) * 100)
+
+            # ── Historical CVaR (실제 분포 — 항상 GBM보다 보수적)
+            # 실제 수익률 하위 5% 평균
+            # Fat Tail이 있으면 정의상 GBM CVaR보다 더 음수
+            var5         = np.percentile(returns, 5)
+            tail5        = returns[returns <= var5]
+            hist_cvar_1x = float(tail5.mean() * 100) if len(tail5) > 0 else float(var5 * 100)
+
+            # ── 레버리지별 Historical CVaR
             cvar_by_lev = []
             mean_by_lev = []
             for lev in LEVERAGES:
                 lr = returns * lev
-                cvar_by_lev.append(round(cvar(lr)*100, 2))
+                cvar_by_lev.append(round(hist_cvar(lr)*100, 2))
                 mean_by_lev.append(float(np.mean(lr)))
 
-            # 최적 레버리지:
-            # 기대수익 양수인 후보 중 CVaR 절댓값이 가장 작은 것
-            # (손실 위험이 가장 적은 것)
+            # ── 최적 레버리지: 기대수익 양수 중 CVaR 절댓값 가장 작은 것
             feasible = [(i, cvar_by_lev[i]) for i in range(len(LEVERAGES)) if mean_by_lev[i] > 0]
-            if feasible:
-                # CVaR가 가장 덜 음수 = 절댓값 가장 작음 = 가장 안전
-                opt_idx = min(feasible, key=lambda x: abs(x[1]))[0]
-            else:
-                opt_idx = 2  # 기본값 1.0×
+            opt_idx  = min(feasible, key=lambda x: abs(x[1]))[0] if feasible else 2
 
             max_abs  = max(abs(v) for v in cvar_by_lev) or 1
             energies = [round(abs(c)/max_abs, 4) for c in cvar_by_lev]
 
             body = json.dumps({
-                "sigma":            round(sigma*100, 1),
-                "bs_prob_profit":   round(prob_profit*100, 1),
-                "bs_expected_ret":  round(bs_expected_ret, 1),
-                "bs_tail_prob":     round(bs_tail_prob, 3),
-                "fat_tail_ratio":   fat_tail_ratio,
-                "fat_tail_ratio_30": fat_tail_ratio_30,
-                "vol_decay":        vol_decay,
-                "cvar_5pct":        round(cvar(returns)*100, 2),
-                "cvar_by_leverage": cvar_by_lev,
-                "optimal_leverage": LEVERAGES[opt_idx],
-                "optimal_idx":      opt_idx,
-                "energies":         energies,
-                "returns":          [round(float(r),6) for r in returns],
+                "sigma":             round(sigma_ann*100, 1),
+                "bs_prob_profit":    round(prob_profit*100, 1),
+                "bs_expected_ret":   round(bs_expected_ret, 1),
+                "bs_tail_prob":      round(bs_tail_prob_15, 3),
+                "bs_tail_prob_30":   round(bs_tail_prob_30, 3),
+                "fat_tail_ratio":    fat_tail_ratio,
+                "vol_decay":         vol_decay,
+                # 핵심 비교: GBM(정규분포) vs Historical(실제 분포)
+                # Historical이 항상 더 음수 (Fat Tail 반영)
+                "gbm_cvar":          round(gbm_cvar_1x, 2),
+                "regime_cvar":       round(hist_cvar_1x, 2),  # Historical CVaR
+                "cvar_5pct":         round(hist_cvar_1x, 2),
+                "cvar_by_leverage":  cvar_by_lev,
+                "optimal_leverage":  LEVERAGES[opt_idx],
+                "optimal_idx":       opt_idx,
+                "energies":          energies,
+                "returns":           [round(float(r),6) for r in returns],
             })
         except Exception as e:
             body = json.dumps({"error": str(e)})

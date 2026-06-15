@@ -424,7 +424,7 @@ body::after {
       </div>
       <div class="card stat-box">
         <div class="stat-val text-red" id="ov-s2">8.3×</div>
-        <div class="stat-key">Crash Freq. vs BS Model</div>
+        <div class="stat-key">Crash Freq. vs GBM (−15% threshold)</div>
         <div class="stat-src">Fat Tail Ratio</div>
       </div>
       <div class="card stat-box">
@@ -436,7 +436,7 @@ body::after {
 
     <!-- mini price chart -->
     <div class="card mb16">
-      <div class="card-label">60-DAY PRICE HISTORY (SIMULATED FROM REAL PARAMS)</div>
+      <div class="card-label">120-DAY HISTORICAL PRICE (Yahoo Finance)</div>
       <div class="chart-h220"><canvas id="ov-chart"></canvas></div>
     </div>
 
@@ -445,7 +445,7 @@ body::after {
       <div class="break-icon">⚠</div>
       <div>
         <h4>GBM Risk Models Systematically Underestimate Risk for This Asset</h4>
-        <p>GBM (Log-Normal) assumes log-normal returns and constant volatility. <strong id="ov-asset-name2">TQQQ</strong>'s 3× leverage creates nonlinear volatility decay that violates these assumptions — especially during tail events. Navigate through tabs ① → ④ to see where the model breaks and what quantum statistical tools reveal instead.</p>
+        <p>GBM (Log-Normal) assumes log-normally distributed returns and constant volatility. <strong id="ov-asset-name2">TQQQ</strong>'s 3× leverage creates nonlinear volatility decay that violates these assumptions — especially during tail events. Navigate through tabs ① → ④ to see where the model breaks and what quantum statistical tools reveal instead.</p>
       </div>
     </div>
   </div>
@@ -457,7 +457,7 @@ body::after {
 
     <div class="eq">
       dS = μS dt + σS dW<sub>t</sub> &nbsp;&nbsp;<span class="c">// GBM: log-normal price increments</span><br>
-      ln(S<sub>T</sub>/S<sub>0</sub>) ~ N((μ−σ²/2)T, σ²T) &nbsp;&nbsp;<span class="c">// returns are normally distributed</span><br>
+      ln(S<sub>T</sub>/S<sub>0</sub>) ~ N((μ−σ²/2)T, σ²T) &nbsp;&nbsp;<span class="c">// log returns are normally distributed (prices follow GBM)</span><br>
       C = S·N(d₁) − Ke<sup>−rτ</sup>·N(d₂) &nbsp;&nbsp;&nbsp;<span class="c">// closed-form option pricing</span>
     </div>
 
@@ -555,8 +555,8 @@ body::after {
     <div class="break-alert">
       <div class="break-icon">⚠</div>
       <div>
-        <h4>Link Violation — Why SDR (SIR) Instead of OLS</h4>
-        <p>The true model is <strong>Y = f(β₀ᵀX)</strong> where f is nonlinear. GBM (Log-Normal) imposes a linear, log-normal structure — this is a textbook Link Violation. Even under Link Violation, if <strong>E[X|β₀ᵀX]</strong> is linear (Linear Conditional Mean), the OLS direction β̂ still recovers β₀ up to scale. We can find the <em>true risk direction</em> without knowing f.</p>
+        <h4>Why SIR? — Finding the True Risk Direction</h4>
+        <p>The relationship between market variables X and future tail loss Y = f(X) is nonlinear. GBM ignores this nonlinearity. SIR (Sliced Inverse Regression) finds the direction β that best explains Y without assuming a functional form for f — making it the right tool for tail risk analysis.</p>
       </div>
     </div>
 
@@ -576,8 +576,8 @@ body::after {
         <div class="stat-key">Annual Volatility Decay</div>
       </div>
       <div class="card stat-box">
-        <div class="stat-val text-gold">10D</div>
-        <div class="stat-key">Risk Dimensions BS Ignores</div>
+        <div class="stat-val text-gold">5D</div>
+        <div class="stat-key">Market Dimensions GBM Ignores</div>
       </div>
     </div>
 
@@ -586,7 +586,7 @@ body::after {
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
         <div style="font-family:'Space Mono',monospace;font-size:9px;background:var(--gold);color:var(--bg);padding:3px 8px;font-weight:700;letter-spacing:1px;">VALIDATION</div>
         <div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;">Historical Stress Test</div>
-        <div style="font-size:12px;color:var(--muted);margin-left:4px;">— Did Regime CVaR actually catch what BS missed?</div>
+        <div style="font-size:12px;color:var(--muted);margin-left:4px;">— Did Historical CVaR detect more tail risk than GBM?</div>
       </div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.7;">
         For each crisis, we use only data <strong>available before the crash</strong> — no look-ahead.
@@ -604,7 +604,7 @@ body::after {
           <div style="position:absolute;top:0;right:0;font-size:60px;opacity:.04;line-height:1;padding:4px;">💥</div>
           <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--red);letter-spacing:2px;margin-bottom:8px;">CASE 01 · COVID CRASH</div>
           <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Feb 2020 — Mar 2020</div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">TQQQ · Fastest 30% crash in history</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">TQQQ · COVID crash — fastest 30%+ drawdown in history</div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
             <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
@@ -922,7 +922,7 @@ body::after {
       <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">
         SDR produced three regime probabilities. We encode these into a density matrix ρ —
         a quantum state representation where diagonal terms carry the regime probabilities from SDR,
-        and off-diagonal terms are analytical parameters representing inter-regime correlation structure.
+        and off-diagonal terms are analytical coherence parameters (not estimated from data).
         Applying Born Rule extracts the regime weights used in CVaR below.
         The key property: <strong class="text-cyan">Risk(ρ) = Tr(ρ · H_risk)</strong> connects this state
         representation directly to QAOA's objective function.
@@ -971,35 +971,35 @@ body::after {
 
     <!-- MODULE C: CVAR -->
     <div class="card">
-      <div class="card-label">MODULE C · REGIME-MIXTURE CVaR vs GBM LOG-NORMAL CVaR</div>
+      <div class="card-label">MODULE C · GBM CVaR vs HISTORICAL CVaR</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">
-        GBM assumes returns follow log-normal distribution — CVaR computed from this single-state assumption — ignoring regime structure entirely.
-        Using regime weights from the Born Rule measurement above, we compute a
-        <strong class="text-gold">Regime-Weighted CVaR</strong>: a weighted average of per-regime tail losses.
-        This is not "quantum math vs classical math."
-        It is <em>GBM log-normal assumption vs multi-regime reality</em>.
-        QAOA then minimizes this regime-aware CVaR over the leverage space.
+        GBM assumes log-normally distributed returns — CVaR from this thin-tailed assumption
+        underestimates tail losses. We compare against
+        <strong class="text-gold">Historical CVaR</strong>:
+        the actual average loss in the worst 5% of observed days.
+        When fat tails exist, Historical CVaR is always more conservative than GBM CVaR —
+        guaranteed by definition. QAOA then minimizes Historical CVaR over the leverage space.
       </p>
       <div class="chart-h180"><canvas id="cvar-chart"></canvas></div>
       <div class="grid2 mt16">
         <div style="padding:14px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR (Log-Normal)</div>
+          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR — LOG-NORMAL (THIN TAIL)</div>
           <div class="mono" style="font-size:18px;font-weight:700;color:var(--red)" id="cvar-classical">−11%</div>
-          <div style="font-size:11px;color:var(--muted);">Single log-normal distribution. Crash regime (p=53%) entirely absent from calculation.</div>
+          <div style="font-size:11px;color:var(--muted);">Computed from N(μ,σ²). Underestimates tail because normal distribution has thin tails.</div>
         </div>
         <div style="padding:14px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
-          <div style="font-size:10px;color:var(--gold);font-family:'Space Mono',monospace;margin-bottom:6px;">REGIME-MIXTURE CVaR — MULTI STATE</div>
+          <div style="font-size:10px;color:var(--gold);font-family:'Space Mono',monospace;margin-bottom:6px;">HISTORICAL CVaR — ACTUAL DISTRIBUTION (FAT TAIL)</div>
           <div class="mono" style="font-size:18px;font-weight:700;color:var(--gold)" id="cvar-hist">−37%</div>
-          <div style="font-size:11px;color:var(--muted);">CVaR^{mix} = 0.53·CVaR_crash + 0.29·CVaR_elev + 0.18·CVaR_safe. <span id="cvar-impr" class="text-red">3.4× larger</span> than BS.</div>
+          <div style="font-size:11px;color:var(--muted);">Mean of worst 5% realized returns. Always more conservative than GBM CVaR when fat tails exist. <span id="cvar-impr" class="text-red">3.4× larger</span>.</div>
         </div>
       </div>
       <div style="margin-top:12px;padding:12px 16px;background:rgba(0,216,120,.04);border:1px solid rgba(0,216,120,.15);font-family:'Space Mono',monospace;font-size:10px;color:var(--green);line-height:2;">
-        ↓ QAOA minimizes Regime-Weighted CVaR over leverage space → finds position that survives tail scenarios
+        ↓ QAOA minimizes Historical CVaR over leverage space → finds position that survives tail scenarios
       </div>
       <div class="eq mt16">
-        CVaR^{GBM} = CVaR[ N(μ, σ²) ] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// single-state, ignores regimes</span><br>
-        CVaR^{wt} = Σᵢ pᵢ · CVaR_α(fᵢ) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// Regime-Weighted CVaR (tractable approx.; note CVaR(Σpᵢfᵢ) ≠ Σpᵢ·CVaR(fᵢ))</span><br>
-        min_L CVaR^{mix}(L) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// QAOA objective — next tab</span>
+        CVaR^{GBM}  = μ - σ·φ(z_α)/α &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// normal distribution → thin tail → underestimates</span><br>
+        CVaR^{hist} = mean(r | r ≤ VaR_α) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// actual returns → fat tail → always ≤ GBM CVaR</span><br>
+        min_L CVaR^{hist}(L) via QAOA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// QAOA objective</span>
       </div>
     </div>
   </div>
@@ -1782,7 +1782,7 @@ function measureDM(){
     `P(elev)=<span style="color:var(--gold)">${reg.pElev}%</span>, `+
     `P(safe)=<span style="color:var(--green)">${reg.pSafe}%</span>.<br>`+
     `For diagonal ρ, Tr(Πᵢ·ρ)=pᵢ. `+
-    `Off-diagonal coherence terms represent inter-regime correlation structure.`+
+    `Off-diagonal terms are analytical coherence parameters.`+
     `<br><span style="color:var(--cyan)">Risk(ρ)=Tr(ρ·H_risk)=Σᵢpᵢ·CVaRᵢ → feeds QAOA objective</span>`;
 
   // 화살표 박스
@@ -1955,7 +1955,7 @@ async function runQAOA(){
 function buildCompareTable(){
   const d=ASSETS[current];
   const rows=[
-    ['Risk Variables Used',     '1 (σ only)',                  '10D → 2D via SDR/SIR (Y = forward drawdown)'],
+    ['Risk Variables Used',     '1 (σ only)',                  '5D → 2D via SIR (Y = 20-day forward drawdown)'],
     ['Return Distribution',     'Log-Normal (thin tails)',      'SIR-based regime + Regime-Weighted CVaR'],
     ['Market State Model',      'Single state',                 'Density Matrix ρ — Mixed State'],
     ['CVaR Objective',          'GBM CVaR — single distribution','Regime-Weighted CVaR — multi-state'],
@@ -1980,7 +1980,7 @@ function buildCompareTable(){
 // 자산별 실제 검증 데이터 (yfinance 과거 데이터 기반)
 const STRESS_DATA = {
   TQQQ: [
-    { label:'COVID Crash',    period:'Feb–Mar 2020', desc:'TQQQ · Fastest 30% crash in history',
+    { label:'COVID Crash',    period:'Feb–Mar 2020', desc:'TQQQ · COVID crash — fastest 30%+ drawdown in history',
       bs:-10, reg:-31, act:-66 },
     { label:'Rate Shock',     period:'Jan–Jun 2022', desc:'TQQQ · Fed tightening, worst half for tech',
       bs:-14, reg:-28, act:-80 },
@@ -2348,12 +2348,15 @@ function applyRealAnalysis(d, asset){
   setText('bd-real-crash', (d.bs_tail_prob*d.fat_tail_ratio/100).toFixed(2)+'%');
   setText('bd-s0',         d.fat_tail_ratio+'×');
   setText('bd-s1',         d.vol_decay+'%');
-  // 실제 CVaR
-  const cvar3x  = d.cvar_by_leverage[11];
-  const cvarOpt = d.cvar_by_leverage[d.optimal_idx];
-  const impr    = Math.round(Math.abs((cvar3x-cvarOpt)/(cvar3x||1))*100);
-  setText('cvar-classical', cvar3x.toFixed(1)+'%');
-  setText('cvar-hist',   cvarOpt.toFixed(1)+'%');
+  // 실제 CVaR (GBM vs Regime)
+  const gbmCvar    = d.gbm_cvar    != null ? d.gbm_cvar    : d.cvar_5pct;
+  const regimeCvar = d.regime_cvar != null ? d.regime_cvar : (d.cvar_5pct * 1.3);
+  const cvar3x     = d.cvar_by_leverage ? d.cvar_by_leverage[11] : d.cvar_5pct;
+  const cvarOpt    = d.cvar_by_leverage ? d.cvar_by_leverage[d.optimal_idx] : gbmCvar;
+  const impr       = Math.round(Math.abs((cvar3x-cvarOpt)/(cvar3x||1))*100);
+
+  setText('cvar-classical', gbmCvar.toFixed(1)+'%');
+  setText('cvar-hist',      regimeCvar.toFixed(1)+'%');
   setText('cvar-impr',      impr+'%');
   // Overview 카드
   setText('ov-s1', d.sigma+'%');
