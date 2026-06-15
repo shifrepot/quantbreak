@@ -11,7 +11,7 @@ TICKER_MAP = {
 }
 LEVERAGES = [0.5, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.5, 2.8, 3.0]
 
-def fetch_yahoo(sym, days=70):
+def fetch_yahoo(sym, days=120):
     end   = int(time.time())
     start = int((datetime.utcnow() - timedelta(days=days)).timestamp())
     url   = (
@@ -23,8 +23,7 @@ def fetch_yahoo(sym, days=70):
         "Accept": "application/json",
     })
     with urllib.request.urlopen(req, timeout=8) as resp:
-        import json as _j
-        data = _j.loads(resp.read())
+        data = json.loads(resp.read())
     result = data["chart"]["result"][0]
     closes = result["indicators"]["quote"][0]["close"]
     prices = [c for c in closes if c is not None]
@@ -44,7 +43,7 @@ class handler(BaseHTTPRequestHandler):
         sym   = TICKER_MAP.get(asset, asset)
 
         try:
-            prices  = fetch_yahoo(sym, days=70)
+            prices  = fetch_yahoo(sym, days=120)   # 120일로 늘림
             returns = np.array([
                 (prices[i]-prices[i-1])/prices[i-1]
                 for i in range(1, len(prices))

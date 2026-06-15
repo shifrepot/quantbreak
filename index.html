@@ -2137,6 +2137,13 @@ async function fetchAllData(asset){
     if(!pData.error) applyRealPrice(pData);
     if(!aData.error) applyRealAnalysis(aData, asset);
     showApiStatus('live');
+
+    // Stress test 별도 호출 (느릴 수 있어서 분리)
+    fetch(`${API_BASE}/api/stress?asset=${asset}`)
+      .then(r=>r.json())
+      .then(sData=>{ if(!sData.error) applyRealStress(sData); })
+      .catch(()=>{});
+
   } catch(e){
     console.warn('[QB] API unavailable — simulation mode:', e.message);
     showApiStatus('sim');
@@ -2208,6 +2215,57 @@ function applyRealAnalysis(d, asset){
     ASSETS[asset].impr    = impr+'%';
   }
   buildQAOABars();   // 실제 CVaR 기반으로 에너지 바 재빌드
+}
+
+function applyRealStress(data){
+  if(!data.cases || !data.cases.length) return;
+  const ids = ['sc0','sc1','sc2'];
+  data.cases.forEach((c, i)=>{
+    if(i > 2 || c.error) return;
+    const id = ids[i];
+    // 숫자 업데이트
+    setText(id+'-bs',  (c.bs_cvar    || '—')+'%');
+    setText(id+'-reg', (c.regime_cvar|| '—')+'%');
+    setText(id+'-act', (c.actual     || '—')+'%');
+    // 언더에스티메이트
+    if(c.bs_underestimate != null){
+      setText(id+'-bs-err',  c.bs_underestimate+'%p');
+      setText(id+'-reg-err', c.regime_underestimate < 5
+        ? c.regime_underestimate+'%p ✓'
+        : c.regime_underestimate+'%p');
+    }
+    // Captured
+    if(c.additional_captured != null){
+      setText(id+'-captured', c.additional_captured+'%');
+      const vEl = document.getElementById(id+'-verdict');
+      if(vEl){
+        if(c.regime_underestimate < 5){
+          vEl.style.color='var(--green)';
+          vEl.textContent='✓ of BS\'s blind spot detected — best case';
+        } else {
+          vEl.style.color='var(--muted)';
+          vEl.textContent='of BS\'s blind spot detected by Regime model';
+        }
+      }
+    }
+    // 카드 헤더 이름
+    const card = document.getElementById('sc-'+i);
+    if(card){
+      const hdr = card.querySelector('[style*="letter-spacing:2px"]');
+      if(hdr) hdr.textContent = `CASE 0${i+1} · ${c.name.toUpperCase()}`;
+      const divs = card.querySelectorAll('div[style*="font-size:13px"]');
+      if(divs[0]) divs[0].textContent = `${c.train_end} → ${c.crash_end}`;
+    }
+  });
+  // 요약
+  if(data.summary){
+    const s = data.summary;
+    setText('avg-bs-err',   (s.avg_bs_underestimate  ||'—')+'%p');
+    setText('avg-reg-err',  (s.avg_regime_underestimate||'—')+'%p');
+    setText('avg-captured', (s.avg_additional_captured ||'—')+'%');
+  }
+  // 바 애니메이션
+  animateStressTest();
 }
 
 async function fetchQAOA(asset){
