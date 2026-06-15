@@ -134,41 +134,62 @@ class handler(BaseHTTPRequestHandler):
             alpha     = 0.05
             leverages = [0.5, 1.0, 1.4, 2.0, 3.0]
 
-            # 레버리지별 실제 Historical CVaR
+            # 레버리지별 Historical CVaR + 기대수익 반영
+            #
+            # 목적함수: |CVaR(L)| / max(E[R(L)], ε)
+            # = 꼬리위험 / 기대수익 비율
+            # → 낮을수록 좋음 (위험 대비 수익이 좋음)
+            # → CVaR(L) ≈ L×CVaR(1) 이지만
+            #    E[R(L)] ≈ L×μ 도 함께 증가하므로
+            #    단순 CVaR 최소화(= 항상 0.5×)와 달리
+            #    시장 상황에 따라 중간 레버리지가 선택됨
+            raw_cvars = []
             costs = []
             for lev in leverages:
-                lr  = returns * lev
-                var = np.percentile(lr, alpha*100)
-                t   = lr[lr <= var]
-                costs.append(float(t.mean()) if len(t) > 0 else float(var))
+                lr    = returns * lev
+                var   = np.percentile(lr, alpha*100)
+                t     = lr[lr <= var]
+                cvar_val  = float(t.mean()) if len(t) > 0 else float(var)
+                exp_ret   = float(np.mean(lr))
+                raw_cvars.append(round(cvar_val*100, 2))
+
+                # 기대수익이 음수면 penalty 추가 (손실 구간에서 레버리지 금지)
+                if exp_ret <= 0:
+                    cost = abs(cvar_val) * 10  # 큰 penalty
+                else:
+                    cost = abs(cvar_val) / (exp_ret + 1e-6)
+
+                costs.append(cost)
 
             # QAOA 실행 (one-hot penalty + grid search)
             probs, best_g, best_b = run_qaoa(costs, p=2)
 
             opt_idx = int(np.argmax(probs))
             opt_lev = leverages[opt_idx]
-            naive   = costs[-1]   # 3× naive
-            impr    = abs((naive - costs[opt_idx]) / (naive+1e-9)) * 100
+            naive   = raw_cvars[-1]   # 3× CVaR (음수, 표시용)
+            opt_cvar = raw_cvars[opt_idx]
+            impr    = abs((naive - opt_cvar) / (naive+1e-9)) * 100
 
             body = json.dumps({
                 "optimal_leverage": opt_lev,
                 "optimal_idx":      opt_idx,
-                "cvar_optimal":     round(costs[opt_idx]*100, 2),
-                "cvar_naive_3x":    round(naive*100, 2),
+                "cvar_optimal":     opt_cvar,
+                "cvar_naive_3x":    naive,
                 "improvement_pct":  round(impr, 1),
                 "probabilities":    [round(float(p_), 4) for p_ in probs],
                 "leverage_labels":  [f"{l}×" for l in leverages],
-                "costs":            [round(c*100, 2) for c in costs],
+                "costs":            raw_cvars,   # 음수 CVaR 표시용
+                "costs_abs":        [round(c*100,2) for c in costs],  # 절댓값 (QAOA 내부용)
                 "n_qubits":         len(leverages),
                 "p_layers":         2,
                 "best_gamma":       round(best_g, 3),
                 "best_beta":        round(best_b, 3),
                 "circuit_info": {
-                    "ansatz":  "|ψ(γ,β)⟩ = ∏ e^{-iβH_M} e^{-iγH_C} |s⟩",
-                    "H_cost":  "Σᵢ hᵢσᵢᶻ + A·(Σxᵢ-1)² (CVaR + one-hot penalty)",
-                    "H_mixer": "Σᵢ σᵢˣ",
-                    "penalty": "A=3.0",
-                    "param_search": f"grid search γ∈[0.2,0.4,0.6,0.8] β∈[0.3,0.5,0.7,0.9]",
+                    "ansatz":       "|ψ(γ,β)⟩ = ∏ e^{-iβH_M} e^{-iγH_C} |s⟩",
+                    "H_cost":       "Σᵢ |CVaR(Lᵢ)|·σᵢᶻ + A·(Σxᵢ-1)² (abs CVaR + one-hot)",
+                    "H_mixer":      "Σᵢ σᵢˣ",
+                    "penalty":      "A=3.0",
+                    "cost_direction": "higher leverage → larger |CVaR| → higher cost → QAOA avoids",
                 }
             })
         except Exception as e:
