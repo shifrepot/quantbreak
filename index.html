@@ -581,6 +581,22 @@ body::after {
       </div>
     </div>
 
+    <!-- GBM vs Historical CVaR 핵심 비교 -->
+    <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="padding:16px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.2);">
+        <div style="font-size:9px;color:var(--red);font-family:'Space Mono',monospace;letter-spacing:1.5px;margin-bottom:8px;">GBM CVaR — LOG-NORMAL ASSUMPTION</div>
+        <div style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--red);" id="bd-gbm-cvar">−5.2%</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">From N(μ,σ²). Thin tails → systematically underestimates extreme losses.</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:'Space Mono',monospace;">CVaR_α = μ − σ·φ(z_α)/α</div>
+      </div>
+      <div style="padding:16px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
+        <div style="font-size:9px;color:var(--gold);font-family:'Space Mono',monospace;letter-spacing:1.5px;margin-bottom:8px;">HISTORICAL CVaR — ACTUAL DISTRIBUTION</div>
+        <div style="font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--gold);" id="bd-hist-cvar">−8.3%</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Mean of worst 5% realized returns. Fat tails → always more conservative than GBM CVaR.</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:'Space Mono',monospace;">CVaR_α = E[r | r ≤ VaR_α]</div>
+      </div>
+    </div>
+
     <!-- ── HISTORICAL STRESS TEST VALIDATION ── -->
     <div style="margin-top:24px;">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
@@ -590,10 +606,10 @@ body::after {
       </div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.7;">
         For each crisis, we use only data <strong>available before the crash</strong> — no look-ahead.
-        We compare GBM CVaR vs Regime-Weighted CVaR computed at that moment,
-        then measure actual subsequent drawdown.
+        We compare GBM CVaR vs Historical CVaR computed at that moment,
+        then measure actual subsequent 20-day drawdown.
         The question is not "did we predict the future?" —
-        it is <strong class="text-gold">"did we detect the tail risk BS was missing?"</strong>
+        it is <strong class="text-gold">"did Historical CVaR detect more tail risk than GBM was showing?"</strong>
       </p>
 
       <!-- 3 Case Study Cards -->
@@ -971,35 +987,40 @@ body::after {
 
     <!-- MODULE C: CVAR -->
     <div class="card">
-      <div class="card-label">MODULE C · GBM CVaR vs HISTORICAL CVaR</div>
+      <div class="card-label">MODULE C · REGIME-WEIGHTED RISK SCORE</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">
-        GBM assumes log-normally distributed returns — CVaR from this thin-tailed assumption
-        underestimates tail losses. We compare against
-        <strong class="text-gold">Historical CVaR</strong>:
-        the actual average loss in the worst 5% of observed days.
-        When fat tails exist, Historical CVaR is always more conservative than GBM CVaR —
-        guaranteed by definition. QAOA then minimizes Historical CVaR over the leverage space.
+        Using regime probabilities from Born Rule above, we compute a
+        <strong class="text-gold">Regime-Weighted Risk Score</strong> —
+        a summary of current tail risk that reflects the regime composition of the market.
+        This is <em>not</em> claimed to be more accurate than Historical CVaR.
+        Rather, it encodes <strong>how much the current regime structure amplifies tail risk</strong>
+        relative to a baseline. The score feeds into QAOA as a regime-aware signal.
+        GBM vs Historical CVaR comparison is shown in Tab ②.
       </p>
       <div class="chart-h180"><canvas id="cvar-chart"></canvas></div>
       <div class="grid2 mt16">
         <div style="padding:14px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR — LOG-NORMAL (THIN TAIL)</div>
+          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR (LOG-NORMAL BASELINE)</div>
           <div class="mono" style="font-size:18px;font-weight:700;color:var(--red)" id="cvar-classical">−11%</div>
-          <div style="font-size:11px;color:var(--muted);">Computed from N(μ,σ²). Underestimates tail because normal distribution has thin tails.</div>
+          <div style="font-size:11px;color:var(--muted);">Single log-normal distribution. No regime structure. Shown here as reference baseline.</div>
         </div>
         <div style="padding:14px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
-          <div style="font-size:10px;color:var(--gold);font-family:'Space Mono',monospace;margin-bottom:6px;">HISTORICAL CVaR — ACTUAL DISTRIBUTION (FAT TAIL)</div>
+          <div style="font-size:10px;color:var(--gold);font-family:'Space Mono',monospace;margin-bottom:6px;">REGIME-WEIGHTED RISK SCORE</div>
           <div class="mono" style="font-size:18px;font-weight:700;color:var(--gold)" id="cvar-hist">−37%</div>
-          <div style="font-size:11px;color:var(--muted);">Mean of worst 5% realized returns. Always more conservative than GBM CVaR when fat tails exist. <span id="cvar-impr" class="text-red">3.4× larger</span>.</div>
+          <div style="font-size:11px;color:var(--muted);">
+            Reflects current regime composition from SDR.<br>
+            <span id="regime-weight-label">p_crash·CVaR_crash + p_elev·CVaR_elev + p_safe·CVaR_safe</span><br>
+            <span style="color:var(--muted);font-size:10px;">Internal signal — not a prediction. Feeds QAOA objective.</span>
+          </div>
         </div>
       </div>
       <div style="margin-top:12px;padding:12px 16px;background:rgba(0,216,120,.04);border:1px solid rgba(0,216,120,.15);font-family:'Space Mono',monospace;font-size:10px;color:var(--green);line-height:2;">
-        ↓ QAOA minimizes Historical CVaR over leverage space → finds position that survives tail scenarios
+        ↓ QAOA uses Historical CVaR (from Tab ②) as objective → regime score informs parameter selection
       </div>
       <div class="eq mt16">
-        CVaR^{GBM}  = μ - σ·φ(z_α)/α &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// normal distribution → thin tail → underestimates</span><br>
-        CVaR^{hist} = mean(r | r ≤ VaR_α) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// actual returns → fat tail → always ≤ GBM CVaR</span><br>
-        min_L CVaR^{hist}(L) via QAOA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// QAOA objective</span>
+        CVaR^{GBM}    = μ - σ·φ(z_α)/α &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// baseline: normal distribution</span><br>
+        Risk^{regime} = Σᵢ pᵢ·CVaR(fᵢ) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// regime-weighted score: pᵢ from Born Rule</span><br>
+        min_L CVaR^{hist}(L) via QAOA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// QAOA objective: Historical CVaR (Tab ②)</span>
       </div>
     </div>
   </div>
@@ -2348,7 +2369,11 @@ function applyRealAnalysis(d, asset){
   setText('bd-real-crash', (d.bs_tail_prob*d.fat_tail_ratio/100).toFixed(2)+'%');
   setText('bd-s0',         d.fat_tail_ratio+'×');
   setText('bd-s1',         d.vol_decay+'%');
-  // 실제 CVaR (GBM vs Regime)
+  // 탭② GBM vs Historical CVaR 비교 카드
+  setText('bd-gbm-cvar',  (d.gbm_cvar  != null ? d.gbm_cvar.toFixed(1)  : '—')+'%');
+  setText('bd-hist-cvar', (d.regime_cvar != null ? d.regime_cvar.toFixed(1) : '—')+'%');
+
+  // 실제 CVaR (GBM vs Historical)
   const gbmCvar    = d.gbm_cvar    != null ? d.gbm_cvar    : d.cvar_5pct;
   const regimeCvar = d.regime_cvar != null ? d.regime_cvar : (d.cvar_5pct * 1.3);
   const cvar3x     = d.cvar_by_leverage ? d.cvar_by_leverage[11] : d.cvar_5pct;
