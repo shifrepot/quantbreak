@@ -61,13 +61,27 @@ class handler(BaseHTTPRequestHandler):
             bs_tail_prob    = float(norm.cdf(-0.30/monthly_sigma)*100)
 
             n = len(returns)
+
+            # Fat Tail Ratio
+            # 임계값: -15% (TQQQ 같은 3× ETF 기준, -30%는 최근 상승장에서 안 나옴)
+            # 기간: 21일 rolling, 3일 간격으로 더 많은 샘플
             monthly_rets = [
                 float(np.prod(1+returns[i:i+21])-1)
-                for i in range(0, n-21, 5)
+                for i in range(0, n-21, 3)
             ]
-            crash_count    = sum(1 for r_ in monthly_rets if r_ < -0.30)
-            actual_tail    = crash_count / max(len(monthly_rets),1) * 100
-            fat_tail_ratio = round(actual_tail/bs_tail_prob, 1) if bs_tail_prob > 0 else 8.3
+            # -15% 기준 실제 발생 빈도
+            threshold   = -0.15
+            crash_count = sum(1 for r_ in monthly_rets if r_ < threshold)
+            actual_tail = crash_count / max(len(monthly_rets),1) * 100
+
+            # GBM이 예측하는 -15% 이하 확률
+            gbm_tail_prob_15 = float(norm.cdf(threshold / monthly_sigma) * 100)
+            fat_tail_ratio   = round(actual_tail / gbm_tail_prob_15, 1) if gbm_tail_prob_15 > 0 else 1.0
+
+            # 원래 -30% 기준도 유지 (화면 표시용)
+            crash_count_30 = sum(1 for r_ in monthly_rets if r_ < -0.30)
+            actual_tail_30 = crash_count_30 / max(len(monthly_rets),1) * 100
+            fat_tail_ratio_30 = round(actual_tail_30 / bs_tail_prob, 1) if bs_tail_prob > 0 and actual_tail_30 > 0 else fat_tail_ratio
 
             lev3      = float(np.prod(1+returns*3)-1)*100
             lev1      = float(np.prod(1+returns)-1)*100
@@ -80,8 +94,15 @@ class handler(BaseHTTPRequestHandler):
                 cvar_by_lev.append(round(cvar(lr)*100, 2))
                 mean_by_lev.append(float(np.mean(lr)))
 
+            # 최적 레버리지:
+            # 기대수익 양수인 후보 중 CVaR 절댓값이 가장 작은 것
+            # (손실 위험이 가장 적은 것)
             feasible = [(i, cvar_by_lev[i]) for i in range(len(LEVERAGES)) if mean_by_lev[i] > 0]
-            opt_idx  = max(feasible, key=lambda x: -x[1])[0] if feasible else 4
+            if feasible:
+                # CVaR가 가장 덜 음수 = 절댓값 가장 작음 = 가장 안전
+                opt_idx = min(feasible, key=lambda x: abs(x[1]))[0]
+            else:
+                opt_idx = 2  # 기본값 1.0×
 
             max_abs  = max(abs(v) for v in cvar_by_lev) or 1
             energies = [round(abs(c)/max_abs, 4) for c in cvar_by_lev]
@@ -92,6 +113,7 @@ class handler(BaseHTTPRequestHandler):
                 "bs_expected_ret":  round(bs_expected_ret, 1),
                 "bs_tail_prob":     round(bs_tail_prob, 3),
                 "fat_tail_ratio":   fat_tail_ratio,
+                "fat_tail_ratio_30": fat_tail_ratio_30,
                 "vol_decay":        vol_decay,
                 "cvar_5pct":        round(cvar(returns)*100, 2),
                 "cvar_by_leverage": cvar_by_lev,
