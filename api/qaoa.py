@@ -21,8 +21,7 @@ def fetch_yahoo(sym, days=70):
         "Accept": "application/json",
     })
     with urllib.request.urlopen(req, timeout=8) as resp:
-        import json as _j
-        data = _j.loads(resp.read())
+        data = json.loads(resp.read())
     result = data["chart"]["result"][0]
     closes = result["indicators"]["quote"][0]["close"]
     prices = [c for c in closes if c is not None]
@@ -35,41 +34,90 @@ def rx(theta):
     return np.array([[c, -1j*s], [-1j*s, c]], dtype=complex)
 
 def run_qaoa(costs, p=2):
+    """
+    QAOA with one-hot penalty
+
+    H_cost = Σᵢ hᵢσᵢᶻ + A·(Σᵢxᵢ - 1)²
+
+    one-hot penalty가 있어야 정확히 1개 레버리지만 선택됨.
+    penalty 없으면 항상 h=0인 첫 번째 후보(0.5×)로 수렴.
+    """
     n   = len(costs)
     dim = 2**n
-    h   = np.array(costs, dtype=float)
-    h   = (h - h.min()) / (h.max() - h.min() + 1e-9)
 
+    # 비용 정규화 [0,1]
+    h = np.array(costs, dtype=float)
+    h = (h - h.min()) / (h.max() - h.min() + 1e-9)
+
+    # one-hot penalty 계수 (비용보다 충분히 크게)
+    A = 3.0
+
+    # 각 상태(비트스트링)의 전체 비용 계산
+    # H_cost = Σᵢ hᵢxᵢ + A·(Σᵢxᵢ - 1)²
+    cost_diag = np.zeros(dim)
+    for x in range(dim):
+        bits     = [(x >> (n-1-i)) & 1 for i in range(n)]
+        n_ones   = sum(bits)
+        cvr_cost = sum(h[i] * bits[i] for i in range(n))
+        penalty  = A * (n_ones - 1)**2   # one-hot: 정확히 1개일 때 0
+        cost_diag[x] = cvr_cost + penalty
+
+    # 초기 균등 중첩
     psi = np.ones(dim, dtype=complex) / np.sqrt(dim)
-    gammas = [0.39, 0.51][:p]
-    betas  = [0.61, 0.49][:p]
 
-    for layer in range(p):
-        # Cost layer
-        cost_diag = np.array([
-            sum(h[i]*((x >> (n-1-i)) & 1) for i in range(n))
-            for x in range(dim)
-        ])
-        psi *= np.exp(-1j * gammas[layer] * cost_diag)
+    # 자산별 최적 파라미터 탐색 (grid search, 간단 버전)
+    best_energy = float('inf')
+    best_probs  = None
 
-        # Mixer layer
-        for i in range(n):
-            gate = rx(2*betas[layer])
-            I2   = np.eye(2, dtype=complex)
-            ops  = [I2]*n; ops[i] = gate
-            full = ops[0]
-            for m in ops[1:]: full = np.kron(full, m)
-            psi = full @ psi
+    gamma_list = [0.2, 0.4, 0.6, 0.8]
+    beta_list  = [0.3, 0.5, 0.7, 0.9]
 
-    probs = np.abs(psi)**2
-    cp    = np.zeros(n)
+    for g in gamma_list:
+        for b in beta_list:
+            psi_try = np.ones(dim, dtype=complex) / np.sqrt(dim)
+
+            for layer in range(p):
+                # Cost layer: e^{-iγH_cost}
+                psi_try *= np.exp(-1j * g * cost_diag)
+
+                # Mixer layer: ⊗ᵢ Rx(2β)
+                for i in range(n):
+                    gate = rx(2 * b)
+                    I2   = np.eye(2, dtype=complex)
+                    ops  = [I2] * n
+                    ops[i] = gate
+                    full = ops[0]
+                    for m in ops[1:]:
+                        full = np.kron(full, m)
+                    psi_try = full @ psi_try
+
+            probs_try  = np.abs(psi_try)**2
+            energy_try = float(np.dot(probs_try, cost_diag))
+
+            if energy_try < best_energy:
+                best_energy = energy_try
+                best_probs  = probs_try.copy()
+                best_gamma  = g
+                best_beta   = b
+
+    # 각 레버리지 후보 확률 집계
+    # one-hot 상태만 유효 → 정확히 1개 비트가 1인 상태들
+    cp = np.zeros(n)
     for state in range(dim):
-        bits = format(state, f'0{n}b')
-        for i, bit in enumerate(bits):
-            if bit == '1': cp[i] += probs[state]
+        bits   = [(state >> (n-1-i)) & 1 for i in range(n)]
+        n_ones = sum(bits)
+        if n_ones == 1:   # one-hot 상태만
+            idx = bits.index(1)
+            cp[idx] += best_probs[state]
+
     total = cp.sum()
-    if total > 0: cp /= total
-    return cp
+    if total > 0:
+        cp /= total
+    else:
+        # fallback: 비용 최소 후보
+        cp[np.argmin(h)] = 1.0
+
+    return cp, best_gamma, best_beta
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -79,10 +127,14 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             prices    = fetch_yahoo(sym, days=70)
-            returns   = np.array([(prices[i]-prices[i-1])/prices[i-1] for i in range(1,len(prices))])
+            returns   = np.array([
+                (prices[i]-prices[i-1])/prices[i-1]
+                for i in range(1, len(prices))
+            ])
             alpha     = 0.05
             leverages = [0.5, 1.0, 1.4, 2.0, 3.0]
 
+            # 레버리지별 실제 Historical CVaR
             costs = []
             for lev in leverages:
                 lr  = returns * lev
@@ -90,10 +142,12 @@ class handler(BaseHTTPRequestHandler):
                 t   = lr[lr <= var]
                 costs.append(float(t.mean()) if len(t) > 0 else float(var))
 
-            probs   = run_qaoa(costs, p=2)
+            # QAOA 실행 (one-hot penalty + grid search)
+            probs, best_g, best_b = run_qaoa(costs, p=2)
+
             opt_idx = int(np.argmax(probs))
             opt_lev = leverages[opt_idx]
-            naive   = costs[-1]
+            naive   = costs[-1]   # 3× naive
             impr    = abs((naive - costs[opt_idx]) / (naive+1e-9)) * 100
 
             body = json.dumps({
@@ -107,6 +161,15 @@ class handler(BaseHTTPRequestHandler):
                 "costs":            [round(c*100, 2) for c in costs],
                 "n_qubits":         len(leverages),
                 "p_layers":         2,
+                "best_gamma":       round(best_g, 3),
+                "best_beta":        round(best_b, 3),
+                "circuit_info": {
+                    "ansatz":  "|ψ(γ,β)⟩ = ∏ e^{-iβH_M} e^{-iγH_C} |s⟩",
+                    "H_cost":  "Σᵢ hᵢσᵢᶻ + A·(Σxᵢ-1)² (CVaR + one-hot penalty)",
+                    "H_mixer": "Σᵢ σᵢˣ",
+                    "penalty": "A=3.0",
+                    "param_search": f"grid search γ∈[0.2,0.4,0.6,0.8] β∈[0.3,0.5,0.7,0.9]",
+                }
             })
         except Exception as e:
             body = json.dumps({"error": str(e)})
