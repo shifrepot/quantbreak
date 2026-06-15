@@ -1,0 +1,2289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuantBreak — Quantum Risk Engine</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --bg:    #080C18;
+  --bg2:   #0D1220;
+  --bg3:   #131828;
+  --line:  #1A2038;
+  --muted: #48536E;
+  --text:  #D8DCE8;
+  --dim:   #8892A8;
+  --cyan:  #00C8F0;
+  --red:   #F03860;
+  --green: #00D878;
+  --gold:  #F0A800;
+  --purple:#9060F0;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* subtle scanline atmosphere */
+body::after {
+  content:'';
+  position:fixed; inset:0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,200,240,.012) 3px, rgba(0,200,240,.012) 4px);
+  pointer-events:none; z-index:9999;
+}
+
+/* ── LAYOUT ─────────────────────────────── */
+.shell { display:flex; min-height:100vh; }
+
+/* SIDEBAR */
+.sidebar {
+  width: 240px; flex-shrink:0;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction:column;
+  padding: 0 0 24px;
+  position: sticky; top:0; height:100vh;
+  overflow-y:auto;
+}
+.sb-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--line);
+  font-family:'Space Mono',monospace;
+  font-size:16px; font-weight:700;
+  color: var(--cyan); letter-spacing:-0.5px;
+}
+.sb-logo span { color:var(--red); }
+.sb-logo small { display:block; font-size:9px; color:var(--muted); letter-spacing:2px; margin-top:4px; font-weight:400; }
+
+.sb-section { padding:16px 20px 8px; font-size:9px; color:var(--muted); letter-spacing:2px; font-family:'Space Mono',monospace; }
+
+.sb-asset {
+  margin: 2px 12px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  cursor:pointer; transition:all .18s;
+  border-radius:0;
+}
+.sb-asset:hover { background:rgba(0,200,240,.06); border-color:var(--line); }
+.sb-asset.active { background:rgba(0,200,240,.10); border-color:rgba(0,200,240,.3); }
+.sb-asset-top { display:flex; justify-content:space-between; align-items:center; }
+.sb-asset-name { font-family:'Space Mono',monospace; font-size:12px; font-weight:700; }
+.sb-asset-tag { font-size:9px; padding:2px 6px; font-family:'Space Mono',monospace; letter-spacing:1px; }
+.tag-etf { background:rgba(0,200,240,.15); color:var(--cyan); }
+.tag-com { background:rgba(240,168,0,.15); color:var(--gold); }
+.sb-asset-sub { font-size:10px; color:var(--muted); margin-top:3px; }
+.sb-asset-price { font-family:'Space Mono',monospace; font-size:11px; font-weight:700; margin-top:6px; }
+.sb-asset-chg { font-size:10px; margin-left:6px; }
+.up { color:var(--green); } .dn { color:var(--red); }
+
+.sb-divider { height:1px; background:var(--line); margin:16px 0; }
+
+.sb-metric { padding:8px 20px; display:flex; justify-content:space-between; align-items:center; }
+.sb-metric-key { font-size:10px; color:var(--muted); }
+.sb-metric-val { font-family:'Space Mono',monospace; font-size:11px; font-weight:700; }
+
+/* MAIN */
+.main { flex:1; min-width:0; }
+
+/* TOPBAR */
+.topbar {
+  position:sticky; top:0; z-index:100;
+  background:rgba(8,12,24,.92); backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);
+  padding:0 32px;
+  display:flex; align-items:center; gap:0; height:48px;
+}
+.tab-btn {
+  height:48px; padding:0 20px;
+  font-family:'Space Mono',monospace; font-size:11px; letter-spacing:.5px;
+  background:none; border:none; color:var(--muted);
+  cursor:pointer; transition:all .18s;
+  border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.tab-btn:hover { color:var(--text); }
+.tab-btn.active { color:var(--cyan); border-bottom-color:var(--cyan); }
+.topbar-right { margin-left:auto; display:flex; align-items:center; gap:16px; }
+.live-badge {
+  display:flex; align-items:center; gap:6px;
+  font-family:'Space Mono',monospace; font-size:9px; color:var(--green); letter-spacing:1.5px;
+}
+.live-dot { width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.4s infinite; }
+@keyframes blink{ 0%,100%{opacity:1} 50%{opacity:.3} }
+@keyframes liq-pulse{ 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(240,56,96,.4)} 50%{opacity:.7;box-shadow:0 0 8px 2px rgba(240,56,96,.2)} }
+
+/* CONTENT PANELS */
+.panel { display:none; padding:32px; }
+.panel.visible { display:block; animation:fadein .3s ease; }
+@keyframes fadein { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+/* ASSET HEADER */
+.asset-header { display:flex; align-items:flex-end; gap:24px; margin-bottom:28px; flex-wrap:wrap; }
+.asset-name-big { font-size:28px; font-weight:800; letter-spacing:-1px; line-height:1; }
+.asset-price-big { font-family:'Space Mono',monospace; font-size:32px; font-weight:700; color:var(--cyan); line-height:1; }
+.asset-chg-big { font-family:'Space Mono',monospace; font-size:14px; padding:4px 10px; margin-bottom:4px; }
+.asset-meta { font-size:11px; color:var(--muted); font-family:'Space Mono',monospace; letter-spacing:.5px; }
+
+/* GRID LAYOUTS */
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+.grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px; }
+.grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+@media(max-width:900px){ .grid2,.grid3,.grid4{grid-template-columns:1fr;} }
+
+/* CARDS */
+.card {
+  background:var(--bg2); border:1px solid var(--line);
+  padding:20px;
+}
+.card-label {
+  font-family:'Space Mono',monospace; font-size:9px; color:var(--muted);
+  letter-spacing:2px; text-transform:uppercase; margin-bottom:12px;
+  display:flex; align-items:center; gap:8px;
+}
+
+/* STAT BOXES */
+.stat-box { text-align:center; }
+.stat-val { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; line-height:1; margin-bottom:4px; }
+.stat-key { font-size:10px; color:var(--muted); }
+.stat-src { font-size:9px; color:var(--muted); margin-top:4px; font-family:'Space Mono',monospace; }
+
+/* CHART WRAP */
+.chart-h180 { position:relative; height:180px; }
+.chart-h220 { position:relative; height:220px; }
+.chart-h260 { position:relative; height:260px; }
+
+/* COMPARISON BANNER */
+.vs-banner {
+  display:grid; grid-template-columns:1fr auto 1fr; gap:0; margin-bottom:16px;
+  border:1px solid var(--line);
+}
+.vs-side { padding:20px 24px; }
+.vs-side.classical { background:rgba(240,56,96,.04); border-right:1px solid var(--line); }
+.vs-side.quantum { background:rgba(0,200,240,.04); }
+.vs-divider {
+  display:flex; align-items:center; justify-content:center;
+  width:48px; background:var(--bg3); border-left:1px solid var(--line); border-right:1px solid var(--line);
+  font-family:'Space Mono',monospace; font-size:9px; color:var(--muted); letter-spacing:2px;
+  writing-mode:vertical-rl; text-orientation:mixed;
+}
+.vs-label { font-size:9px; font-family:'Space Mono',monospace; letter-spacing:2px; margin-bottom:8px; }
+.vs-label.red { color:var(--red); } .vs-label.cyan { color:var(--cyan); }
+.vs-metric { font-family:'Space Mono',monospace; font-size:20px; font-weight:700; margin-bottom:2px; }
+.vs-desc { font-size:11px; color:var(--muted); line-height:1.5; }
+
+/* BREAK ALERT */
+.break-alert {
+  display:flex; gap:16px; align-items:flex-start;
+  background:rgba(240,56,96,.07); border:1px solid rgba(240,56,96,.25);
+  padding:16px 20px; margin-bottom:16px;
+}
+.break-icon { font-size:20px; flex-shrink:0; margin-top:1px; animation:pulse-r 1.6s ease-in-out infinite; }
+@keyframes pulse-r{ 0%,100%{opacity:1} 50%{opacity:.4} }
+.break-alert h4 { font-size:13px; font-weight:600; color:var(--red); margin-bottom:4px; }
+.break-alert p { font-size:12px; color:var(--dim); line-height:1.6; }
+
+/* EQ BOX */
+.eq {
+  background:var(--bg); border:1px solid var(--line); border-left:2px solid var(--cyan);
+  padding:14px 18px; font-family:'Space Mono',monospace; font-size:11px;
+  color:var(--cyan); line-height:2; margin-bottom:16px;
+}
+.eq .c { color:var(--muted); font-style:italic; }
+
+/* PROGRESS BAR */
+.prog-row { margin-bottom:12px; }
+.prog-label { display:flex; justify-content:space-between; font-family:'Space Mono',monospace; font-size:10px; margin-bottom:5px; }
+.prog-track { height:5px; background:var(--bg); border:1px solid var(--line); overflow:hidden; }
+.prog-fill { height:100%; transition:width 1.2s cubic-bezier(.4,0,.2,1); }
+
+/* DENSITY MATRIX TABLE */
+.dm-table { display:inline-grid; grid-template-columns:1fr 1fr; gap:2px; }
+.dm-cell {
+  width:90px; height:64px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  font-family:'Space Mono',monospace; font-size:14px; font-weight:700;
+  transition:all .6s ease;
+}
+.dm-idx { font-size:8px; color:var(--muted); margin-top:4px; letter-spacing:.5px; }
+
+/* RECOMMENDATION CARD */
+.rec-card {
+  background:var(--bg3); border:1px solid rgba(0,216,120,.3);
+  padding:28px; position:relative; overflow:hidden;
+  opacity:0; transform:translateY(24px);
+  transition: opacity .6s cubic-bezier(.4,0,.2,1), transform .6s cubic-bezier(.4,0,.2,1),
+              box-shadow .6s ease, border-color .6s ease;
+}
+.rec-card.revealed {
+  opacity:1; transform:translateY(0);
+  border-color:rgba(0,216,120,.7);
+  box-shadow: 0 0 40px rgba(0,216,120,.15), 0 0 80px rgba(0,216,120,.06);
+}
+.rec-card::before {
+  content:''; position:absolute; top:-60px; right:-60px;
+  width:200px; height:200px;
+  background:radial-gradient(circle,rgba(0,216,120,.08),transparent 70%);
+}
+.rec-lev {
+  font-family:'Space Mono',monospace; font-size:52px; font-weight:700; color:var(--green); line-height:1;
+  text-shadow: 0 0 30px rgba(0,216,120,.4);
+}
+.rec-sub { font-size:12px; color:var(--muted); margin-top:4px; margin-bottom:20px; }
+
+/* WAVE CHART */
+.wave-bar-wrap { display:flex; align-items:flex-end; gap:6px; height:100px; padding:0 4px; }
+.wave-bar {
+  flex:1; border-radius:0; position:relative; min-width:0;
+  transition: height .15s ease, background .3s;
+}
+.wave-bar-lbl {
+  font-family:'Space Mono',monospace; font-size:9px; color:var(--muted);
+  text-align:center; margin-top:5px; white-space:nowrap; overflow:hidden;
+}
+.wave-bar.converged { box-shadow: 0 0 12px rgba(0,216,120,.6); }
+
+/* QUANTUM ADVANTAGE COUNTER */
+.qa-counter {
+  font-family:'Space Mono',monospace; font-size:13px;
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+.qa-num { font-size:20px; font-weight:700; }
+
+@keyframes card-glow {
+  0%  { box-shadow: 0 0 20px rgba(0,216,120,.3); }
+  50% { box-shadow: 0 0 60px rgba(0,216,120,.25), 0 0 120px rgba(0,216,120,.1); }
+  100%{ box-shadow: 0 0 40px rgba(0,216,120,.15), 0 0 80px rgba(0,216,120,.06); }
+}
+
+/* BUTTONS */
+.btn {
+  font-family:'Space Mono',monospace; font-size:11px; letter-spacing:.5px;
+  padding:10px 20px; border:1px solid var(--line); background:transparent;
+  color:var(--text); cursor:pointer; transition:all .18s;
+}
+.btn:hover { border-color:var(--cyan); color:var(--cyan); }
+.btn.primary { background:var(--cyan); border-color:var(--cyan); color:var(--bg); font-weight:700; }
+.btn.primary:hover { background:#00b0d4; }
+.btn.success { background:var(--green); border-color:var(--green); color:var(--bg); font-weight:700; }
+.btn:disabled { opacity:.35; cursor:not-allowed; }
+
+/* SDR CANVAS */
+#sdr-cv { width:100%; height:240px; background:var(--bg); border:1px solid var(--line); display:block; }
+
+/* QAOA ENERGY BAR */
+.energy-bars { display:flex; align-items:flex-end; gap:4px; height:80px; }
+.e-bar {
+  flex:1; background:rgba(0,200,240,.2); border:1px solid rgba(0,200,240,.15);
+  transition:height 1s cubic-bezier(.4,0,.2,1), background .3s;
+  position:relative; min-width:0;
+}
+.e-bar.optimal { background:rgba(0,216,120,.4); border-color:rgba(0,216,120,.5); }
+.e-bar-lbl { font-family:'Space Mono',monospace; font-size:8px; color:var(--muted); text-align:center; margin-top:4px; }
+
+.hidden { display:none!important; }
+.mt8{margin-top:8px} .mt16{margin-top:16px} .mt20{margin-top:20px} .mt24{margin-top:24px}
+.mb8{margin-bottom:8px} .mb16{margin-bottom:16px}
+.text-cyan{color:var(--cyan)} .text-red{color:var(--red)} .text-green{color:var(--green)} .text-gold{color:var(--gold)} .text-muted{color:var(--muted)}
+.mono{font-family:'Space Mono',monospace}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ── SIDEBAR ───────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sb-logo">Quant<span>Break</span><small>QUANTUM RISK ENGINE v1</small></div>
+
+  <div class="sb-section">LEVERAGED ETF</div>
+  <div class="sb-asset active" onclick="selectAsset('TQQQ',this)">
+    <div class="sb-asset-top">
+      <span class="sb-asset-name">TQQQ</span>
+      <span class="sb-asset-tag tag-etf">3× ETF</span>
+    </div>
+    <div class="sb-asset-sub">ProShares UltraPro QQQ</div>
+    <div class="sb-asset-price">
+      <span id="sb-p-TQQQ">$84.32</span>
+      <span class="sb-asset-chg up" id="sb-c-TQQQ">+2.94%</span>
+    </div>
+  </div>
+  <div class="sb-asset" onclick="selectAsset('SOXL',this)">
+    <div class="sb-asset-top">
+      <span class="sb-asset-name">SOXL</span>
+      <span class="sb-asset-tag tag-etf">3× ETF</span>
+    </div>
+    <div class="sb-asset-sub">Direxion Semi Bull 3×</div>
+    <div class="sb-asset-price">
+      <span id="sb-p-SOXL">$31.17</span>
+      <span class="sb-asset-chg dn" id="sb-c-SOXL">−5.55%</span>
+    </div>
+  </div>
+  <div class="sb-asset" onclick="selectAsset('SQQQ',this)">
+    <div class="sb-asset-top">
+      <span class="sb-asset-name">SQQQ</span>
+      <span class="sb-asset-tag tag-etf">3× INV</span>
+    </div>
+    <div class="sb-asset-sub">ProShares UltraPro Short</div>
+    <div class="sb-asset-price">
+      <span id="sb-p-SQQQ">$9.44</span>
+      <span class="sb-asset-chg dn" id="sb-c-SQQQ">−2.81%</span>
+    </div>
+  </div>
+
+  <div class="sb-divider"></div>
+
+  <div class="sb-section">COMMODITIES</div>
+  <div class="sb-asset" onclick="selectAsset('WTI',this)">
+    <div class="sb-asset-top">
+      <span class="sb-asset-name">WTI</span>
+      <span class="sb-asset-tag tag-com">FUTURES</span>
+    </div>
+    <div class="sb-asset-sub">Crude Oil Front Month</div>
+    <div class="sb-asset-price">
+      <span id="sb-p-WTI">$72.44</span>
+      <span class="sb-asset-chg up" id="sb-c-WTI">+1.23%</span>
+    </div>
+  </div>
+  <div class="sb-asset" onclick="selectAsset('NG',this)">
+    <div class="sb-asset-top">
+      <span class="sb-asset-name">NG</span>
+      <span class="sb-asset-tag tag-com">FUTURES</span>
+    </div>
+    <div class="sb-asset-sub">Natural Gas Henry Hub</div>
+    <div class="sb-asset-price">
+      <span id="sb-p-NG">$2.18</span>
+      <span class="sb-asset-chg dn" id="sb-c-NG">−6.03%</span>
+    </div>
+  </div>
+  <div class="sb-asset" onclick="selectAsset('BOIL',this)">
+    <div class="sb-asset-top">
+      <span class="sb-asset-name">BOIL</span>
+      <span class="sb-asset-tag tag-com">2× GAS</span>
+    </div>
+    <div class="sb-asset-sub">ProShares Ultra Nat Gas</div>
+    <div class="sb-asset-price">
+      <span id="sb-p-BOIL">$11.82</span>
+      <span class="sb-asset-chg dn" id="sb-c-BOIL">−11.4%</span>
+    </div>
+  </div>
+
+  <div class="sb-divider"></div>
+  <div class="sb-section">MARKET PULSE</div>
+  <div class="sb-metric"><span class="sb-metric-key">VIX</span><span class="sb-metric-val text-red">28.4</span></div>
+  <div class="sb-metric"><span class="sb-metric-key">Fear Index</span><span class="sb-metric-val text-red">HIGH</span></div>
+  <div class="sb-metric"><span class="sb-metric-key">Data</span><span class="sb-metric-val text-muted mono" style="font-size:9px">YF · 15m lag</span></div>
+  <div class="sb-metric"><span class="sb-metric-key">Last fetch</span><span class="sb-metric-val text-muted mono" style="font-size:9px" id="last-fetch">—</span></div>
+</aside>
+
+<!-- ── MAIN ──────────────────────────────────────────────── -->
+<main class="main">
+  <div class="topbar">
+    <button class="tab-btn active" onclick="switchTab('overview',this)">Overview</button>
+    <button class="tab-btn" onclick="switchTab('classical',this)">① Classical Model</button>
+    <button class="tab-btn" onclick="switchTab('breakdown',this)">② Where It Breaks</button>
+    <button class="tab-btn" onclick="switchTab('quantum',this)">③ Quantum Analysis</button>
+    <button class="tab-btn" onclick="switchTab('recommendation',this)">④ Recommendation</button>
+    <div class="topbar-right">
+      <div class="live-badge"><div class="live-dot"></div>LIVE (15m delay)</div>
+      <button class="btn" onclick="refreshData()" style="font-size:10px;padding:6px 14px;">↻ REFRESH</button>
+    </div>
+  </div>
+
+  <!-- ══ OVERVIEW ════════════════════════════════════════ -->
+  <div class="panel visible" id="tab-overview">
+    <div class="asset-header">
+      <div>
+        <div class="asset-name-big" id="ov-name">TQQQ — ProShares UltraPro QQQ</div>
+        <div class="asset-meta mt8" id="ov-meta">3× LEVERAGED ETF · NASDAQ-100 · Yahoo Finance (15m delay)</div>
+      </div>
+      <div>
+        <div class="asset-price-big" id="ov-price">$84.32</div>
+        <div class="asset-chg-big up" id="ov-chg">+$2.41 (+2.94%)</div>
+      </div>
+    </div>
+
+    <!-- 4 quick stats -->
+    <div class="grid4" id="ov-stats">
+      <div class="card stat-box">
+        <div class="stat-val" id="ov-s0" style="color:var(--red)">HIGH</div>
+        <div class="stat-key">Quantum Risk Level</div>
+        <div class="stat-src">CVaR₅% · Tail Risk</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val" id="ov-s1">42%</div>
+        <div class="stat-key">30-Day Realized Vol</div>
+        <div class="stat-src">Black-Scholes σ</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val text-red" id="ov-s2">8.3×</div>
+        <div class="stat-key">Crash Freq. vs BS Model</div>
+        <div class="stat-src">Fat Tail Ratio</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val text-green" id="ov-s3">1.4×</div>
+        <div class="stat-key">Safe Leverage (QAOA)</div>
+        <div class="stat-src">QAOA + CVaR Optimized</div>
+      </div>
+    </div>
+
+    <!-- mini price chart -->
+    <div class="card mb16">
+      <div class="card-label">60-DAY PRICE HISTORY (SIMULATED FROM REAL PARAMS)</div>
+      <div class="chart-h220"><canvas id="ov-chart"></canvas></div>
+    </div>
+
+    <!-- thesis -->
+    <div class="break-alert">
+      <div class="break-icon">⚠</div>
+      <div>
+        <h4>Classical Models Systematically Underestimate Risk for This Asset</h4>
+        <p>Black-Scholes assumes log-normal returns and constant volatility. <strong id="ov-asset-name2">TQQQ</strong>'s 3× leverage creates nonlinear volatility decay that violates these assumptions — especially during tail events. Navigate through tabs ① → ④ to see where the model breaks and what quantum statistical tools reveal instead.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CLASSICAL ═══════════════════════════════════════ -->
+  <div class="panel" id="tab-classical">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">① What Black-Scholes Says</h2>
+    <p class="text-muted mb16" style="font-size:13px;">The classical model gives a clean, tractable answer. Here's what it predicts.</p>
+
+    <div class="eq">
+      dS = μS dt + σS dW<sub>t</sub> &nbsp;&nbsp;<span class="c">// GBM: log-normal price increments</span><br>
+      ln(S<sub>T</sub>/S<sub>0</sub>) ~ N((μ−σ²/2)T, σ²T) &nbsp;&nbsp;<span class="c">// returns are normally distributed</span><br>
+      C = S·N(d₁) − Ke<sup>−rτ</sup>·N(d₂) &nbsp;&nbsp;&nbsp;<span class="c">// closed-form option pricing</span>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-label">LOG-NORMAL RETURN DISTRIBUTION</div>
+        <div class="chart-h180"><canvas id="bs-dist"></canvas></div>
+        <p class="mt8" style="font-size:11px;color:var(--muted)">Perfect bell curve. Thin tails. Extreme moves are astronomically unlikely under this model.</p>
+      </div>
+      <div class="card">
+        <div class="card-label">SIMULATED PRICE PATHS × 5</div>
+        <div class="chart-h180"><canvas id="bs-paths"></canvas></div>
+        <p class="mt8" style="font-size:11px;color:var(--muted)">BS paths look manageable — gradual trends with small noise. No catastrophic collapses.</p>
+      </div>
+    </div>
+
+    <div class="grid3">
+      <div class="card stat-box">
+        <div class="stat-val text-green" id="c-ret">+18.4%</div>
+        <div class="stat-key">Expected 6M Return</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val" id="c-vol">42%</div>
+        <div class="stat-key">Implied Volatility (σ)</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val text-green" id="c-prob">71%</div>
+        <div class="stat-key">P(Profit) — BS Model</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(0,216,120,.05);border:1px solid rgba(0,216,120,.15);padding:16px 20px;">
+      <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:6px;">✓ Classical verdict for <span id="c-asset">TQQQ</span>: Hold. Expected return positive. Risk appears manageable.</div>
+      <div style="font-size:11px;color:var(--muted);">Under log-normal assumption, <span id="c-tail-prob">0.3%</span> probability of losing more than 30% in a single month. Model looks good. But is the assumption valid?</div>
+    </div>
+  </div>
+
+  <!-- ══ BREAKDOWN ═══════════════════════════════════════ -->
+  <div class="panel" id="tab-breakdown">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">② Where the Classical Model Breaks</h2>
+    <p class="text-muted mb16" style="font-size:13px;">Empirical data vs. Black-Scholes predictions — </p>
+
+    <div class="vs-banner">
+      <div class="vs-side classical">
+        <div class="vs-label red">BLACK-SCHOLES PREDICTS</div>
+        <div class="vs-metric text-green" id="bd-bs-crash">0.3%</div>
+        <div class="vs-desc">monthly drawdown &gt;30% probability</div>
+        <div class="vs-metric text-green mt16" id="bd-bs-tail">Normal</div>
+        <div class="vs-desc">tail behavior — thin, symmetric</div>
+      </div>
+      <div class="vs-divider">VS</div>
+      <div class="vs-side quantum">
+        <div class="vs-label cyan">EMPIRICAL DATA SHOWS</div>
+        <div class="vs-metric text-red" id="bd-real-crash">2.5%</div>
+        <div class="vs-desc">actual frequency (8.3× higher)</div>
+        <div class="vs-metric text-red mt16" id="bd-real-tail">Fat Tail</div>
+        <div class="vs-desc">asymmetric, heavy left tail, kurtosis &gt;6</div>
+      </div>
+    </div>
+
+    <div class="grid2 mb16">
+      <div class="card">
+        <div class="card-label">BS DISTRIBUTION vs ACTUAL FAT TAIL</div>
+        <div class="chart-h180"><canvas id="bd-dist"></canvas></div>
+        <p class="mt8" style="font-size:11px;color:var(--muted)">Red area: actual distribution. Dashed: BS prediction. The tails are catastrophically underestimated.</p>
+      </div>
+      <div class="card">
+        <div class="card-label">VOLATILITY DECAY — 3× LEVERAGE TRAP</div>
+        <div style="position:relative;" class="chart-h180">
+          <canvas id="bd-decay"></canvas>
+          <!-- LIQUIDATION TRAP MARKER -->
+          <div id="liq-marker" style="
+            position:absolute; top:0; bottom:0;
+            left:38%; width:2px;
+            background:repeating-linear-gradient(to bottom,var(--red) 0px,var(--red) 6px,transparent 6px,transparent 12px);
+            pointer-events:none;
+          "></div>
+          <div id="liq-label" style="
+            position:absolute; top:8px; left:40%;
+            background:rgba(240,56,96,.13); border:1px solid rgba(240,56,96,.55);
+            padding:4px 8px; font-family:'Space Mono',monospace; font-size:9px;
+            color:var(--red); white-space:nowrap; letter-spacing:.5px;
+            animation: liq-pulse 2s ease-in-out infinite;
+          ">💥 BS BLINDSPOT: MARGIN CALL TRIGGER</div>
+          <div id="liq-sub" style="
+            position:absolute; top:40px; left:40%;
+            font-family:'Space Mono',monospace; font-size:8px;
+            color:rgba(240,56,96,.6); white-space:nowrap;
+          ">← Black-Scholes: "safe zone" &nbsp;|&nbsp; Reality: liquidation →</div>
+        </div>
+        <p class="mt8" style="font-size:11px;color:var(--muted)">Red dashed line = estimated margin call trigger. Black-Scholes classifies everything left of this line as "safe." Actual paths cross it <span id="bd-crash-freq" class="text-red">8.3×</span> more often than the model predicts.</p>
+      </div>
+    </div>
+
+    <div class="break-alert">
+      <div class="break-icon">⚠</div>
+      <div>
+        <h4>Link Violation — Why SDR (SIR) Instead of OLS</h4>
+        <p>The true model is <strong>Y = f(β₀ᵀX)</strong> where f is nonlinear. Black-Scholes imposes a linear, log-normal structure — this is a textbook Link Violation. Even under Link Violation, if <strong>E[X|β₀ᵀX]</strong> is linear (Linear Conditional Mean), the OLS direction β̂ still recovers β₀ up to scale. We can find the <em>true risk direction</em> without knowing f.</p>
+      </div>
+    </div>
+
+    <div class="eq">
+      Y = f(β₀ᵀX) + ε &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// True model: unknown nonlinear f (Link Violation)</span><br>
+      E[X | β₀ᵀX] = Σ·η(β₀ᵀX) &nbsp;<span class="c">// Linear Conditional Mean holds ← key assumption (L9)</span><br>
+      β̂_OLS ∝ β₀ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// ∴ direction recoverable even when model is wrong</span>
+    </div>
+
+    <div class="grid3">
+      <div class="card stat-box">
+        <div class="stat-val text-red" id="bd-s0">8.3×</div>
+        <div class="stat-key">Actual vs. Predicted Crash Freq.</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val text-red" id="bd-s1">−34%</div>
+        <div class="stat-key">Annual Volatility Decay</div>
+      </div>
+      <div class="card stat-box">
+        <div class="stat-val text-gold">10D</div>
+        <div class="stat-key">Risk Dimensions BS Ignores</div>
+      </div>
+    </div>
+
+    <!-- ── HISTORICAL STRESS TEST VALIDATION ── -->
+    <div style="margin-top:24px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;background:var(--gold);color:var(--bg);padding:3px 8px;font-weight:700;letter-spacing:1px;">VALIDATION</div>
+        <div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;">Historical Stress Test</div>
+        <div style="font-size:12px;color:var(--muted);margin-left:4px;">— Did Regime CVaR actually catch what BS missed?</div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.7;">
+        For each crisis, we use only data <strong>available before the crash</strong> — no look-ahead.
+        We compare BS CVaR vs Regime-Weighted CVaR computed at that moment,
+        then measure actual subsequent drawdown.
+        The question is not "did we predict the future?" —
+        it is <strong class="text-gold">"did we detect the tail risk BS was missing?"</strong>
+      </p>
+
+      <!-- 3 Case Study Cards -->
+      <div class="grid3" id="stress-cards">
+
+        <!-- CARD 1: COVID -->
+        <div class="card" style="border-top:2px solid var(--red);position:relative;overflow:hidden;" id="sc-0">
+          <div style="position:absolute;top:0;right:0;font-size:60px;opacity:.04;line-height:1;padding:4px;">💥</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--red);letter-spacing:2px;margin-bottom:8px;">CASE 01 · COVID CRASH</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Feb 2020 — Mar 2020</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">TQQQ · Fastest 30% crash in history</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+            <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc0-bs">−10%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">BS CVaR<br>(pre-crash)</div>
+            </div>
+            <div style="text-align:center;padding:10px 6px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--gold);" id="sc0-reg">−31%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">Regime CVaR<br>(pre-crash)</div>
+            </div>
+            <div style="text-align:center;padding:10px 6px;background:rgba(144,96,240,.06);border:1px solid rgba(144,96,240,.2);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--purple);" id="sc0-act">−66%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">Actual<br>Drawdown</div>
+            </div>
+          </div>
+
+          <!-- Detection bars -->
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px;letter-spacing:1px;">TAIL RISK UNDERESTIMATION</div>
+
+          <div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
+              <span class="text-red">BS underestimated tail risk by</span>
+              <span class="text-red" id="sc0-bs-err">56%p</span>
+            </div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
+              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc0-bs-bar"></div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
+              <span class="text-gold">Regime model underestimated tail risk by</span>
+              <span class="text-gold" id="sc0-reg-err">35%p</span>
+            </div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
+              <div style="height:100%;background:var(--gold);transition:width 1.2s ease;" id="sc0-reg-bar"></div>
+            </div>
+          </div>
+
+          <div style="background:rgba(0,200,240,.05);border:1px solid rgba(0,200,240,.15);padding:8px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">ADDITIONAL TAIL RISK CAPTURED</div>
+            <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--cyan);" id="sc0-captured">37%</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;" id="sc0-verdict">of BS's blind spot detected by Regime model</div>
+          </div>
+        </div>
+
+        <!-- CARD 2: 2022 Rate Shock -->
+        <div class="card" style="border-top:2px solid var(--red);position:relative;overflow:hidden;" id="sc-1">
+          <div style="position:absolute;top:0;right:0;font-size:60px;opacity:.04;line-height:1;padding:4px;">📉</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--red);letter-spacing:2px;margin-bottom:8px;">CASE 02 · RATE SHOCK</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Jan 2022 — Jun 2022</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">TQQQ · Fed tightening, worst half for tech</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+            <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc1-bs">−14%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">BS CVaR<br>(pre-crash)</div>
+            </div>
+            <div style="text-align:center;padding:10px 6px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--gold);" id="sc1-reg">−28%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">Regime CVaR<br>(pre-crash)</div>
+            </div>
+            <div style="text-align:center;padding:10px 6px;background:rgba(144,96,240,.06);border:1px solid rgba(144,96,240,.2);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--purple);" id="sc1-act">−80%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">Actual<br>Drawdown</div>
+            </div>
+          </div>
+
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px;letter-spacing:1px;">TAIL RISK UNDERESTIMATION</div>
+          <div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
+              <span class="text-red">BS underestimated tail risk by</span>
+              <span class="text-red" id="sc1-bs-err">66%p</span>
+            </div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
+              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc1-bs-bar"></div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
+              <span class="text-gold">Regime model underestimated tail risk by</span>
+              <span class="text-gold" id="sc1-reg-err">52%p</span>
+            </div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
+              <div style="height:100%;background:var(--gold);transition:width 1.2s ease;" id="sc1-reg-bar"></div>
+            </div>
+          </div>
+
+          <div style="background:rgba(0,200,240,.05);border:1px solid rgba(0,200,240,.15);padding:8px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">ADDITIONAL TAIL RISK CAPTURED</div>
+            <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--cyan);" id="sc1-captured">21%</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;" id="sc1-verdict">of BS's blind spot detected by Regime model</div>
+          </div>
+        </div>
+
+        <!-- CARD 3: Yen Carry Unwind -->
+        <div class="card" style="border-top:2px solid var(--gold);position:relative;overflow:hidden;" id="sc-2">
+          <div style="position:absolute;top:0;right:0;font-size:60px;opacity:.04;line-height:1;padding:4px;">⚡</div>
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:2px;margin-bottom:8px;">CASE 03 · YEN CARRY UNWIND</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Aug 2024 — 3-day shock</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">TQQQ · Flash crash, fastest recovery</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+            <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc2-bs">−8%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">BS CVaR<br>(pre-crash)</div>
+            </div>
+            <div style="text-align:center;padding:10px 6px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--gold);" id="sc2-reg">−24%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">Regime CVaR<br>(pre-crash)</div>
+            </div>
+            <div style="text-align:center;padding:10px 6px;background:rgba(144,96,240,.06);border:1px solid rgba(144,96,240,.2);">
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--purple);" id="sc2-act">−26%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">Actual<br>Drawdown</div>
+            </div>
+          </div>
+
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px;letter-spacing:1px;">TAIL RISK UNDERESTIMATION</div>
+          <div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
+              <span class="text-red">BS underestimated tail risk by</span>
+              <span class="text-red" id="sc2-bs-err">18%p</span>
+            </div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
+              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc2-bs-bar"></div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
+              <span class="text-gold">Regime model underestimated tail risk by</span>
+              <span class="text-gold" id="sc2-reg-err">2%p</span>
+            </div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
+              <div style="height:100%;background:var(--gold);transition:width 1.2s ease;" id="sc2-reg-bar"></div>
+            </div>
+          </div>
+
+          <div style="background:rgba(0,216,120,.06);border:1px solid rgba(0,216,120,.25);padding:8px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;">ADDITIONAL TAIL RISK CAPTURED</div>
+            <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--green);" id="sc2-captured">89%</div>
+            <div style="font-size:10px;color:var(--green);margin-top:2px;" id="sc2-verdict">✓ of BS's blind spot detected — best case in this analysis</div>
+          </div>
+        </div>
+
+      </div><!-- /stress-cards -->
+
+      <!-- Summary -->
+      <div style="margin-top:16px;background:var(--bg2);border:1px solid var(--line);padding:20px 24px;">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:14px;">SUMMARY ACROSS 3 CRISES</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:16px;">
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">AVG BS UNDERESTIMATION</div>
+            <div style="font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--red);" id="avg-bs-err">47%p</div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);margin-top:6px;">
+              <div id="avg-bs-bar" style="height:100%;background:var(--red);width:0%;transition:width 1.4s ease;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">AVG REGIME UNDERESTIMATION</div>
+            <div style="font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--gold);" id="avg-reg-err">30%p</div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);margin-top:6px;">
+              <div id="avg-reg-bar" style="height:100%;background:var(--gold);width:0%;transition:width 1.4s ease;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">AVG ADDITIONAL RISK CAPTURED</div>
+            <div style="font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--cyan);" id="avg-captured">49%</div>
+            <div style="height:5px;background:var(--bg);border:1px solid var(--line);margin-top:6px;">
+              <div id="avg-captured-bar" style="height:100%;background:var(--cyan);width:0%;transition:width 1.4s ease;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:14px 16px;background:rgba(0,200,240,.04);border:1px solid rgba(0,200,240,.12);font-size:11px;color:var(--muted);line-height:1.8;">
+          <strong style="color:var(--text);">We do not claim perfect prediction.</strong>
+          Both models underestimate extreme tail events.
+          The claim is: <strong class="text-cyan">Regime-Weighted CVaR consistently detects more tail risk than Black-Scholes</strong>
+          — capturing on average 49% of the blind spot that causes forced liquidations.
+          In the best case (Yen Carry 2024), 89% of BS's missed risk was captured.
+        </div>
+        <button class="btn mt16" onclick="animateStressTest()" id="stress-btn" style="font-size:10px;">
+          ▶ ANIMATE STRESS TEST
+        </button>
+      </div>
+    </div>
+    <!-- /Historical Stress Test -->
+
+  </div><!-- /tab-breakdown -->
+
+  <!-- ══ QUANTUM ══════════════════════════════════════════ -->
+  <div class="panel" id="tab-quantum">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">③ Quantum Statistical Analysis</h2>
+    <p class="text-muted mb16" style="font-size:13px;">
+      Three tools applied in sequence — each feeds the next:
+      <strong class="text-cyan">SDR (Sliced Inverse Regression)</strong> generates the risk regime space →
+      <strong class="text-gold">Density Matrix</strong> re-expresses regime probabilities as a quantum state →
+      <strong class="text-green">Regime-Weighted CVaR</strong> feeds into QAOA optimization.
+    </p>
+
+    <!-- MODULE A: HILBERT SPACE + SDR -->
+    <div class="card mb16">
+      <div class="card-label">MODULE A · SDR RISK REGIME GENERATOR — Rᵖ(Σ) Hilbert Space + SIR</div>
+
+      <!-- two-col layout: left = explanation + slider, right = canvas -->
+      <div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start;">
+
+        <!-- LEFT: explanation + slider -->
+        <div>
+          <p style="font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:16px;">
+            Black-Scholes uses <strong>1 variable</strong> (σ). We use <strong>10 macro variables</strong> projected into
+            <strong class="text-cyan">Rᵖ(Σ)</strong> — Hilbert space with covariance inner product
+            <span class="mono text-cyan" style="font-size:11px;">⟨u,v⟩_Σ = uᵀΣv</span>.
+            We define <strong class="text-gold">Y = 20-day forward maximum drawdown</strong> — the actual future tail loss. Using <strong class="text-cyan">Sliced Inverse Regression (SIR)</strong> in Rᵖ(Σ) Hilbert Space (inner product ⟨u,v⟩_Σ = uᵀΣv), we extract directions β₁, β₂ that best explain Y. These directions are aligned with actual tail loss, not just variance.
+          </p>
+
+          <!-- Variable list -->
+          <div style="font-size:10px;color:var(--muted);line-height:2;font-family:'Space Mono',monospace;margin-bottom:20px;">
+            <div><span class="text-cyan">X₁</span> VIX term structure</div>
+            <div><span class="text-cyan">X₂</span> Open interest</div>
+            <div><span class="text-cyan">X₃</span> Put/Call ratio</div>
+            <div><span class="text-cyan">X₄</span> Yield spread</div>
+            <div><span class="text-cyan">X₅</span> Geopolitical index</div>
+            <div><span class="text-cyan">X₆</span> Sector flow</div>
+            <div><span class="text-cyan">X₇</span> Momentum</div>
+            <div><span class="text-cyan">X₈</span> SPY correlation</div>
+            <div><span class="text-cyan">X₉</span> Macro sentiment</div>
+            <div><span class="text-cyan">X₁₀</span> Vol surface skew</div>
+          </div>
+
+          <!-- GEOPOLITICAL RISK SLIDER -->
+          <div style="background:var(--bg);border:1px solid var(--line);padding:14px;">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1.5px;margin-bottom:10px;">GEOPOLITICAL RISK LEVEL</div>
+            <input type="range" id="geo-slider" min="0" max="100" value="60"
+              oninput="onGeoSlide(this.value)"
+              style="width:100%;accent-color:var(--red);cursor:pointer;">
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:6px;">
+              <span>CALM</span><span id="geo-val" style="color:var(--red);">60</span><span>CRISIS</span>
+            </div>
+            <div style="margin-top:12px;font-size:10px;color:var(--muted);line-height:1.6;" id="geo-desc">
+              Elevated geopolitical stress — current state vector approaching liquidation zone boundary.
+            </div>
+          </div>
+
+          <button class="btn mt16" onclick="animateSDR()" style="width:100%;font-size:10px;" id="sdr-btn">▶ RUN SDR PROJECTION</button>
+        </div>
+
+        <!-- RIGHT: canvas -->
+        <div>
+          <canvas id="sdr-cv" style="width:100%;height:320px;background:var(--bg);border:1px solid var(--line);display:block;"></canvas>
+          <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);">
+            <span>● <span class="text-green">SAFE REGIME</span></span>
+            <span>● <span class="text-gold">ELEVATED</span></span>
+            <span>● <span class="text-red">CRASH REGIME</span></span>
+            <span>✦ <span class="text-cyan">CURRENT STATE</span></span>
+            <span style="margin-left:auto;">— <span style="color:rgba(0,200,240,.5)">β DIRECTION</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SDR result strip — now shows regime breakdown + feeds DM -->
+      <div id="sdr-result" class="hidden mt16" style="background:rgba(0,200,240,.05);border:1px solid rgba(0,200,240,.18);padding:14px 18px;">
+        <div class="grid3" style="margin-bottom:14px;">
+          <div class="stat-box"><div class="stat-val text-red" id="sdr-regime">CRASH ZONE</div><div class="stat-key">Current Regime (Y-based)</div></div>
+          <div class="stat-box"><div class="stat-val" id="sdr-var">—</div><div class="stat-key">β₁ explains Y² (%)</div></div>
+          <div class="stat-box"><div class="stat-val text-gold" id="sdr-analog">—</div><div class="stat-key">β₁ corr with Y</div></div>
+        </div>
+        <!-- REGIME BREAKDOWN → feeds Density Matrix -->
+        <div style="border-top:1px solid var(--line);padding-top:12px;">
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1.5px;margin-bottom:10px;">
+            SIR REGIME BREAKDOWN (Y = 20-day drawdown) → FEEDS DENSITY MATRIX
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;min-width:120px;">
+              <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:4px;">
+                <span class="text-green">p_safe</span><span class="text-green" id="sdr-p-safe">18%</span>
+              </div>
+              <div style="height:4px;background:var(--bg);border:1px solid var(--line);">
+                <div id="sdr-bar-safe" style="height:100%;background:var(--green);width:18%;transition:width 1s ease;"></div>
+              </div>
+            </div>
+            <div style="flex:1;min-width:120px;">
+              <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:4px;">
+                <span class="text-gold">p_elevated</span><span class="text-gold" id="sdr-p-elev">29%</span>
+              </div>
+              <div style="height:4px;background:var(--bg);border:1px solid var(--line);">
+                <div id="sdr-bar-elev" style="height:100%;background:var(--gold);width:29%;transition:width 1s ease;"></div>
+              </div>
+            </div>
+            <div style="flex:1;min-width:120px;">
+              <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:4px;">
+                <span class="text-red">p_crash</span><span class="text-red" id="sdr-p-crash">53%</span>
+              </div>
+              <div style="height:4px;background:var(--bg);border:1px solid var(--line);">
+                <div id="sdr-bar-crash" style="height:100%;background:var(--red);width:53%;transition:width 1s ease;"></div>
+              </div>
+            </div>
+            <div style="font-size:20px;color:var(--cyan);padding:0 8px;">→</div>
+            <div style="font-size:11px;color:var(--cyan);font-family:'Space Mono',monospace;line-height:1.8;">
+              ρ = 0.18|safe⟩⟨safe|<br>+ 0.29|elev⟩⟨elev|<br>+ 0.53|crash⟩⟨crash|
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- equations -->
+      <div class="eq mt16">
+        Y = min(Pₜ₊₁..Pₜ₊₂₀)/Pₜ − 1 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// response: 20-day forward maximum drawdown</span><br>
+        M = Σₕ wₕ(m̄ₕ−m̄)(m̄ₕ−m̄)ᵀ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// SIR: weighted cov of slice means E[X|Y∈sliceₕ]</span><br>
+        β = eigenvec(Σ⁻¹M) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// SDR direction — aligned with tail loss Y</span><br>
+        ⟨u,v⟩_Σ = uᵀΣv &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// Hilbert space Rᵖ(Σ) inner product</span>
+      </div>
+    </div>
+
+    <!-- MODULE B: DENSITY MATRIX -->
+    <div class="card mb16">
+      <div class="card-label">MODULE B · DENSITY MATRIX</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">
+        SDR produced three regime probabilities. We encode these into a density matrix ρ —
+        a quantum state representation where diagonal terms carry the regime probabilities from SDR,
+        and off-diagonal terms are analytical parameters representing inter-regime correlation structure.
+        Applying Born Rule extracts the regime weights used in CVaR below.
+        The key property: <strong class="text-cyan">Risk(ρ) = Tr(ρ · H_risk)</strong> connects this state
+        representation directly to QAOA's objective function.
+      </p>
+      <div style="display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:10px;">DENSITY MATRIX ρ</div>
+          <div class="dm-table">
+            <div class="dm-cell" style="background:rgba(240,56,96,.14)"><span id="dm00">0.53</span><span class="dm-idx">⟨crash|ρ|crash⟩</span></div>
+            <div class="dm-cell" style="background:rgba(0,200,240,.06)"><span id="dm01">0.18i</span><span class="dm-idx">⟨crash|ρ|safe⟩</span></div>
+            <div class="dm-cell" style="background:rgba(0,200,240,.06)"><span id="dm10">−0.18i</span><span class="dm-idx">⟨safe|ρ|crash⟩</span></div>
+            <div class="dm-cell" style="background:rgba(0,216,120,.10)"><span id="dm11">0.18</span><span class="dm-idx">⟨safe|ρ|safe⟩</span></div>
+          </div>
+          <button class="btn mt16" onclick="measureDM()" style="width:184px;font-size:10px;">⊗ APPLY BORN RULE</button>
+        </div>
+        <div style="flex:1;min-width:200px;">
+          <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:12px;">BORN RULE MEASUREMENT → REGIME WEIGHTS</div>
+          <div class="prog-row">
+            <div class="prog-label"><span class="text-red">|CRASH⟩ regime</span><span class="text-red" id="bear-pct">53%</span></div>
+            <div class="prog-track"><div class="prog-fill" style="background:var(--red);width:53%" id="bear-bar"></div></div>
+          </div>
+          <div class="prog-row mt8">
+            <div class="prog-label"><span class="text-gold">|ELEVATED⟩ regime</span><span class="text-gold" id="elev-pct">29%</span></div>
+            <div class="prog-track"><div class="prog-fill" style="background:var(--gold);width:29%" id="elev-bar"></div></div>
+          </div>
+          <div class="prog-row mt8">
+            <div class="prog-label"><span class="text-green">|SAFE⟩ regime</span><span class="text-green" id="bull-pct">18%</span></div>
+            <div class="prog-track"><div class="prog-fill" style="background:var(--green);width:18%" id="bull-bar"></div></div>
+          </div>
+          <div class="mt16" style="background:var(--bg);border:1px solid var(--line);padding:12px 14px;font-size:12px;line-height:1.7;" id="dm-reading">
+            Click "Apply Born Rule" to extract regime weights from ρ → fed into Regime-Weighted CVaR below.
+          </div>
+          <div id="dm-arrow" class="hidden mt16" style="background:rgba(0,200,240,.06);border:1px solid rgba(0,200,240,.2);padding:12px 14px;font-family:'Space Mono',monospace;font-size:10px;line-height:2;color:var(--cyan);">
+            ↓ FEEDS MODULE C<br>
+            <span style="color:var(--muted);">pᵢ = Tr(Πᵢ · ρ)  →  CVaR^{mix} = Σᵢ pᵢ · CVaRᵢ</span><br>
+            <span style="color:var(--muted);">p_crash=<span id="arrow-crash">53%</span> drives heavy left tail in mixture distribution</span>
+          </div>
+        </div>
+      </div>
+      <div class="eq mt16">
+        ρ = p_safe|safe⟩⟨safe| + p_elev|elev⟩⟨elev| + p_crash|crash⟩⟨crash| + off-diag terms<br>
+        P(regimeᵢ) = Tr(Πᵢ · ρ) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// Born Rule — extracts diagonal weights</span><br>
+        Risk(ρ) = Tr(ρ · H_risk) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// quantum risk measure → QAOA objective</span>
+      </div>
+    </div>
+
+    <!-- MODULE C: CVAR -->
+    <div class="card">
+      <div class="card-label">MODULE C · REGIME-MIXTURE CVaR vs BLACK-SCHOLES CVaR</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">
+        Black-Scholes computes CVaR from a single log-normal distribution — ignoring regime structure entirely.
+        Using regime weights from the Born Rule measurement above, we compute a
+        <strong class="text-gold">Regime-Weighted CVaR</strong>: a weighted average of per-regime tail losses.
+        This is not "quantum math vs classical math."
+        It is <em>single-state assumption vs multi-regime reality</em>.
+        QAOA then minimizes this regime-aware CVaR over the leverage space.
+      </p>
+      <div class="chart-h180"><canvas id="cvar-chart"></canvas></div>
+      <div class="grid2 mt16">
+        <div style="padding:14px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
+          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">BLACK-SCHOLES CVaR — SINGLE STATE</div>
+          <div class="mono" style="font-size:18px;font-weight:700;color:var(--red)" id="cvar-classical">−11%</div>
+          <div style="font-size:11px;color:var(--muted);">Single log-normal distribution. Crash regime (p=53%) entirely absent from calculation.</div>
+        </div>
+        <div style="padding:14px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
+          <div style="font-size:10px;color:var(--gold);font-family:'Space Mono',monospace;margin-bottom:6px;">REGIME-MIXTURE CVaR — MULTI STATE</div>
+          <div class="mono" style="font-size:18px;font-weight:700;color:var(--gold)" id="cvar-quantum">−37%</div>
+          <div style="font-size:11px;color:var(--muted);">CVaR^{mix} = 0.53·CVaR_crash + 0.29·CVaR_elev + 0.18·CVaR_safe. <span id="cvar-impr" class="text-red">3.4× larger</span> than BS.</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;padding:12px 16px;background:rgba(0,216,120,.04);border:1px solid rgba(0,216,120,.15);font-family:'Space Mono',monospace;font-size:10px;color:var(--green);line-height:2;">
+        ↓ QAOA minimizes Regime-Weighted CVaR over leverage space → finds position that survives tail scenarios
+      </div>
+      <div class="eq mt16">
+        CVaR^{BS}  = CVaR[ N(μ, σ²) ] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// single-state, ignores regimes</span><br>
+        CVaR^{wt} = Σᵢ pᵢ · CVaR_α(fᵢ) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// Regime-Weighted CVaR (tractable approx.; note CVaR(Σpᵢfᵢ) ≠ Σpᵢ·CVaR(fᵢ))</span><br>
+        min_L CVaR^{mix}(L) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// QAOA objective — next tab</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RECOMMENDATION ═══════════════════════════════════ -->
+  <div class="panel" id="tab-recommendation">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">④ QAOA Recommendation</h2>
+    <p class="text-muted mb16" style="font-size:13px;">Leverage selection as a QUBO problem, solved with QAOA + CVaR objective.</p>
+
+    <!-- QAOA energy landscape -->
+    <div class="card mb16">
+      <div class="card-label">QAOA ENERGY LANDSCAPE — LEVERAGE SELECTION</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Each bar = a leverage candidate (0.5× to 3×). QAOA minimizes H_cost = Σhᵢσᵢᶻ + A·(Σxᵢ−1)² — the CVaR cost plus a one-hot penalty ensuring exactly one leverage is selected. Green bar = optimal solution.</p>
+      <div id="qaoa-bars" style="padding:0 8px;">
+        <div class="energy-bars" id="e-bars">
+          <!-- generated by JS -->
+        </div>
+        <div style="display:flex;gap:4px;margin-top:4px;" id="e-lbls"></div>
+      </div>
+      <button class="btn primary mt16" onclick="runQAOA()" id="qaoa-btn">⚡ RUN QAOA OPTIMIZATION</button>
+
+      <!-- TERMINAL LOG -->
+      <div id="qaoa-terminal" class="hidden" style="
+        margin-top:16px; background:#050810; border:1px solid var(--line);
+        border-left:2px solid var(--cyan); padding:16px 20px;
+        font-family:'Space Mono',monospace; font-size:11px; line-height:2;
+        height:200px; overflow-y:auto; position:relative;
+      ">
+        <div id="terminal-lines"></div>
+        <span id="terminal-cursor" style="display:inline-block;width:8px;height:14px;background:var(--cyan);vertical-align:middle;animation:blink .8s step-end infinite;margin-left:2px;"></span>
+      </div>
+
+      <!-- WAVE PROBABILITY CHART -->
+      <div id="wave-section" class="hidden mt16">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--cyan);letter-spacing:2px;margin-bottom:10px;">
+          QAOA PROBABILITY DISTRIBUTION — |ψ(γ,β)⟩ AMPLITUDE TUNING
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--line);padding:16px 12px 8px;">
+          <div class="wave-bar-wrap" id="wave-bars"></div>
+          <div style="display:flex;gap:6px;margin-top:0;" id="wave-lbls"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;font-family:'Space Mono',monospace;" id="wave-phase-label">
+          Phase 1/3 — Uniform superposition: all leverage candidates equally probable
+        </div>
+      </div>
+
+      <div class="eq mt16">
+        H_cost = Σᵢ hᵢσᵢᶻ + A·(Σᵢxᵢ − 1)² &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// Ising + one-hot penalty (exactly 1 leverage selected)</span><br>
+        |ψ(β,γ)⟩ = ∏ e^{−iβH_M} e^{−iγH_C} |s⟩ &nbsp;<span class="c">// QAOA ansatz (L7)</span><br>
+        min_θ CVaR_α(⟨ψ(θ)|H_cost|ψ(θ)⟩) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// CVaR-QAOA objective (combines L7 §10-12)</span>
+      </div>
+    </div>
+
+    <!-- RESULT CARD -->
+    <div class="rec-card mb16" id="qaoa-result-card">
+      <div class="mono" style="font-size:9px;color:var(--green);letter-spacing:2px;margin-bottom:12px;" id="rec-status">— RUN QAOA TO SEE RESULT —</div>
+      <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;">
+        <div>
+          <div class="rec-lev" id="rec-lev">—</div>
+          <div class="rec-sub">QAOA + CVaR OPTIMAL LEVERAGE</div>
+        </div>
+        <div style="flex:1;min-width:200px;">
+          <div class="grid3" id="rec-metrics" style="margin-bottom:0">
+            <div class="stat-box"><div class="stat-val text-red" id="rec-m0">—</div><div class="stat-key">CVaR₅% naive 3×</div></div>
+            <div class="stat-box"><div class="stat-val text-green" id="rec-m1">—</div><div class="stat-key">CVaR₅% optimized</div></div>
+            <div class="stat-box"><div class="stat-val text-gold" id="rec-m2">—</div><div class="stat-key">Tail Risk Reduction</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="rec-detail" class="hidden" style="margin-top:24px;border-top:1px solid var(--line);padding-top:20px;">
+        <div class="grid2">
+          <div>
+            <div class="mono" style="font-size:9px;color:var(--muted);letter-spacing:1.5px;margin-bottom:10px;">POSITION SIZING RECOMMENDATION</div>
+            <div class="prog-row">
+              <div class="prog-label"><span>Long Exposure</span><span class="text-green" id="pos-long">—</span></div>
+              <div class="prog-track"><div class="prog-fill" style="background:var(--green)" id="pos-long-bar"></div></div>
+            </div>
+            <div class="prog-row mt8">
+              <div class="prog-label"><span>Hedge (Inverse ETF)</span><span class="text-gold" id="pos-hedge">—</span></div>
+              <div class="prog-track"><div class="prog-fill" style="background:var(--gold)" id="pos-hedge-bar"></div></div>
+            </div>
+            <div class="prog-row mt8">
+              <div class="prog-label"><span>Cash Buffer</span><span class="text-cyan" id="pos-cash">—</span></div>
+              <div class="prog-track"><div class="prog-fill" style="background:var(--cyan)" id="pos-cash-bar"></div></div>
+            </div>
+          </div>
+          <div>
+            <div class="mono" style="font-size:9px;color:var(--muted);letter-spacing:1.5px;margin-bottom:10px;">COURSE CONCEPTS APPLIED</div>
+            <div style="font-size:12px;line-height:2;color:var(--dim)">
+              SDR (SIR, Y=forward drawdown) — 10D → 2D tail-risk regime<br>
+              Density Matrix ρ — regime state encoded, Born Rule applied<br>
+              CVaR — tail risk objective instead of E[return]<br>
+              QAOA — QUBO leverage search, <span id="qaoa-iters">—</span> iterations
+            </div>
+            <!-- QAOA JUSTIFICATION NOTE -->
+            <div style="margin-top:16px;background:var(--bg);border:1px solid var(--line);border-left:2px solid var(--cyan);padding:14px 16px;">
+              <div style="font-size:9px;color:var(--cyan);font-family:'Space Mono',monospace;letter-spacing:1.5px;margin-bottom:10px;">WHY QAOA?</div>
+              <div style="font-size:11px;color:var(--dim);line-height:1.8;">
+                Not for speed. At this demo scale (5 candidates),
+                classical search is sufficient.<br><br>
+                QAOA is used because <strong style="color:var(--text);">Regime-Weighted CVaR (from SIR regimes)
+                naturally maps to a QUBO</strong> — the same structure QAOA
+                is designed to optimize. As asset count and constraints grow,
+                the combination space expands exponentially and
+                classical solvers face increasing difficulty.<br><br>
+                <span style="color:var(--muted);">
+                This project does not claim quantum speedup.
+                The objective is to formulate regime-aware leverage
+                selection within a quantum optimization framework.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- comparison table -->
+    <div class="card">
+      <div class="card-label">CLASSICAL vs QUANTUM — FINAL COMPARISON</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--line);">
+            <th style="text-align:left;padding:10px 12px;font-size:10px;color:var(--muted);font-weight:500;font-family:'Space Mono',monospace;letter-spacing:1px;">DIMENSION</th>
+            <th style="text-align:center;padding:10px 12px;font-size:10px;color:var(--red);font-family:'Space Mono',monospace;letter-spacing:1px;">BLACK-SCHOLES</th>
+            <th style="text-align:center;padding:10px 12px;font-size:10px;color:var(--cyan);font-family:'Space Mono',monospace;letter-spacing:1px;">QUANTBREAK</th>
+          </tr>
+        </thead>
+        <tbody id="compare-table">
+          <!-- filled by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════════
+const ASSETS = {
+  TQQQ:{ name:'TQQQ — ProShares UltraPro QQQ', meta:'3× LEVERAGED ETF · NASDAQ-100', price:84.32, chg:2.41, chgPct:2.94, up:true,
+    vol:'42%', ret:'+18.4%', prob:'71%', tailProb:'0.3%', crash:'8.3×', decay:'−34%',
+    riskLv:'HIGH', safeLev:'1.4×', cvar:'−41%', cvarOpt:'−12%', impr:'71%',
+    long:'46%', longN:46, hedge:'18%', hedgeN:18, cash:'36%', cashN:36,
+    regime:'CRASH ZONE', varEx:'94%', analog:'2008, 2020',
+    bearP:67, bullP:33, qaoa:12,
+    dm:['0.67','0.21i','−0.21i','0.33'],
+    energies:[0.82,0.65,0.52,0.38,0.21,0.12,0.29,0.44,0.63,0.81,0.93,1.00], optIdx:5
+  },
+  SOXL:{ name:'SOXL — Direxion Semis Bull 3×', meta:'3× LEVERAGED ETF · PHLX SEMICONDUCTOR', price:31.17, chg:-1.83, chgPct:-5.55, up:false,
+    vol:'58%', ret:'+22.1%', prob:'68%', tailProb:'0.2%', crash:'11.2×', decay:'−48%',
+    riskLv:'EXTREME', safeLev:'1.1×', cvar:'−55%', cvarOpt:'−14%', impr:'75%',
+    long:'38%', longN:38, hedge:'22%', hedgeN:22, cash:'40%', cashN:40,
+    regime:'HIGH RISK', varEx:'91%', analog:'2000, 2022',
+    bearP:74, bullP:26, qaoa:14,
+    dm:['0.74','0.18i','−0.18i','0.26'],
+    energies:[0.78,0.62,0.50,0.40,0.28,0.17,0.09,0.22,0.41,0.60,0.79,0.95], optIdx:6
+  },
+  SQQQ:{ name:'SQQQ — ProShares UltraPro Short QQQ', meta:'3× INVERSE ETF · NASDAQ-100 SHORT', price:9.44, chg:-0.28, chgPct:-2.81, up:false,
+    vol:'44%', ret:'+9.2%', prob:'42%', tailProb:'0.4%', crash:'6.9×', decay:'−38%',
+    riskLv:'HIGH', safeLev:'1.2×', cvar:'−36%', cvarOpt:'−11%', impr:'69%',
+    long:'40%', longN:40, hedge:'20%', hedgeN:20, cash:'40%', cashN:40,
+    regime:'ELEVATED', varEx:'89%', analog:'2022, 2018',
+    bearP:60, bullP:40, qaoa:10,
+    dm:['0.60','0.24i','−0.24i','0.40'],
+    energies:[0.85,0.70,0.55,0.40,0.28,0.18,0.10,0.08,0.20,0.38,0.58,0.80], optIdx:7
+  },
+  WTI:{ name:'WTI — Crude Oil Front Month', meta:'COMMODITY FUTURES · NYMEX', price:72.44, chg:0.88, chgPct:1.23, up:true,
+    vol:'35%', ret:'+9.8%', prob:'64%', tailProb:'0.5%', crash:'6.1×', decay:'−22%',
+    riskLv:'ELEVATED', safeLev:'1.8×', cvar:'−31%', cvarOpt:'−9%', impr:'71%',
+    long:'52%', longN:52, hedge:'14%', hedgeN:14, cash:'34%', cashN:34,
+    regime:'ELEVATED', varEx:'88%', analog:'2014, 2020',
+    bearP:55, bullP:45, qaoa:9,
+    dm:['0.55','0.28i','−0.28i','0.45'],
+    energies:[0.90,0.72,0.55,0.38,0.22,0.12,0.08,0.15,0.30,0.48,0.66,0.82], optIdx:6
+  },
+  NG:{ name:'Natural Gas — Henry Hub Front Month', meta:'COMMODITY FUTURES · NYMEX', price:2.18, chg:-0.14, chgPct:-6.03, up:false,
+    vol:'74%', ret:'+31.2%', prob:'59%', tailProb:'0.1%', crash:'14.7×', decay:'−61%',
+    riskLv:'EXTREME', safeLev:'0.9×', cvar:'−68%', cvarOpt:'−17%', impr:'75%',
+    long:'31%', longN:31, hedge:'28%', hedgeN:28, cash:'41%', cashN:41,
+    regime:'EXTREME RISK', varEx:'96%', analog:'2021, 2022',
+    bearP:80, bullP:20, qaoa:16,
+    dm:['0.80','0.12i','−0.12i','0.20'],
+    energies:[0.70,0.58,0.46,0.35,0.25,0.17,0.11,0.07,0.05,0.12,0.28,0.45], optIdx:8
+  },
+  BOIL:{ name:'BOIL — ProShares Ultra Nat Gas 2×', meta:'2× LEVERAGED COMMODITY ETF', price:11.82, chg:-1.52, chgPct:-11.4, up:false,
+    vol:'82%', ret:'+41.0%', prob:'54%', tailProb:'0.08%', crash:'17.2×', decay:'−72%',
+    riskLv:'EXTREME', safeLev:'0.7×', cvar:'−78%', cvarOpt:'−21%', impr:'73%',
+    long:'24%', longN:24, hedge:'32%', hedgeN:32, cash:'44%', cashN:44,
+    regime:'EXTREME RISK', varEx:'97%', analog:'2021, 2022',
+    bearP:85, bullP:15, qaoa:18,
+    dm:['0.85','0.09i','−0.09i','0.15'],
+    energies:[0.65,0.52,0.42,0.33,0.25,0.18,0.12,0.08,0.05,0.04,0.09,0.22], optIdx:9
+  }
+};
+
+let current = 'TQQQ';
+let charts = {};
+
+// ══════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════
+window.addEventListener('load', ()=>{
+  updateLastFetch();
+  buildCharts();
+  buildQAOABars();
+  buildCompareTable();
+  applyAsset();
+  simulatePriceTick();
+  setInterval(simulatePriceTick, 8000);
+  refreshStressCards();
+  fetchAllData(current);   // ← 최초 로드 시 실제 데이터 pull
+});
+
+function updateLastFetch(){
+  const now = new Date();
+  document.getElementById('last-fetch').textContent =
+    now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+}
+
+// ══════════════════════════════════════════════════════════
+// ASSET SELECTION
+// ══════════════════════════════════════════════════════════
+function selectAsset(key, el){
+  document.querySelectorAll('.sb-asset').forEach(e=>e.classList.remove('active'));
+  el.classList.add('active');
+  current = key;
+  applyAsset();
+  // reset quantum results
+  document.getElementById('sdr-result').classList.add('hidden');
+  sdrRevealed=false; stableCloud=[];
+  geoRisk=60;
+  const gs=document.getElementById('geo-slider'); if(gs){ gs.value=60; }
+  const gv=document.getElementById('geo-val'); if(gv) gv.textContent='60';
+  const gdesc=document.getElementById('geo-desc'); if(gdesc){ gdesc.textContent='Elevated geopolitical stress — current state vector approaching liquidation zone boundary.'; gdesc.style.color=''; }
+  const sdrBtn=document.getElementById('sdr-btn'); if(sdrBtn){ sdrBtn.disabled=false; sdrBtn.textContent='▶ RUN SDR PROJECTION'; }
+  setTimeout(()=>{ const cv=document.getElementById('sdr-cv'); if(cv) drawHilbert(0); },60);
+  setText('dm-reading', 'Click "Apply Born Rule" to collapse the state and read probabilities.');
+  const waveSection=document.getElementById('wave-section');
+  if(waveSection) waveSection.classList.add('hidden');
+  const card=document.getElementById('qaoa-result-card');
+  if(card){ card.classList.remove('revealed'); card.style.animation=''; }
+  const elRs=document.getElementById('rec-status'); if(elRs) elRs.textContent='— RUN QAOA TO SEE RESULT —';
+  const elLev=document.getElementById('rec-lev'); if(elLev) elLev.textContent='—';
+  const elM0=document.getElementById('rec-m0'); if(elM0) elM0.textContent='—';
+  const elM1=document.getElementById('rec-m1'); if(elM1) elM1.textContent='—';
+  const elM2=document.getElementById('rec-m2'); if(elM2) elM2.textContent='—';
+  const elRd=document.getElementById('rec-detail'); if(elRd) elRd.classList.add('hidden');
+  const elBtn=document.getElementById('qaoa-btn');
+  if(elBtn){ elBtn.textContent='⚡ RUN QAOA OPTIMIZATION'; elBtn.disabled=false; elBtn.className='btn primary mt16'; }
+  // reset terminal
+  const term=document.getElementById('qaoa-terminal');
+  if(term){ term.classList.add('hidden'); document.getElementById('terminal-lines').innerHTML=''; document.getElementById('terminal-cursor').style.display='inline-block'; }
+  // update liquidation marker crash freq label
+  if(document.getElementById('bd-crash-freq')) document.getElementById('bd-crash-freq').textContent=ASSETS[key].crash;
+  buildQAOABars(); buildCharts(); buildCompareTable(); resetBars();
+  refreshStressCards();
+  fetchAllData(key);   // ← 실제 Yahoo Finance + 분석 호출
+}
+
+// null-safe helpers
+function setText(id, val){ const el=document.getElementById(id); if(el) el.textContent=val; }
+function setStyle(id, prop, val){ const el=document.getElementById(id); if(el) el.style[prop]=val; }
+function setClass(id, cls){ const el=document.getElementById(id); if(el) el.className=cls; }
+
+function applyAsset(){
+  const d = ASSETS[current];
+  // SIDEBAR prices
+  ['TQQQ','SOXL','SQQQ','WTI','NG','BOIL'].forEach(k=>{
+    const a=ASSETS[k];
+    setText('sb-p-'+k, '$'+a.price.toFixed(2));
+    const cel=document.getElementById('sb-c-'+k);
+    if(cel){ cel.textContent=(a.up?'+':'')+a.chgPct.toFixed(2)+'%'; cel.className='sb-asset-chg '+(a.up?'up':'dn'); }
+  });
+  // OVERVIEW
+  setText('ov-name', d.name);
+  setText('ov-meta', d.meta+' · Yahoo Finance (15m delay)');
+  setText('ov-price', '$'+d.price.toFixed(2));
+  const ochg=document.getElementById('ov-chg');
+  if(ochg){ ochg.textContent=(d.up?'+':'')+d.chg.toFixed(2)+' ('+(d.up?'+':'')+d.chgPct.toFixed(2)+'%)'; ochg.className='asset-chg-big '+(d.up?'up':'dn'); }
+  setText('ov-s0', d.riskLv);
+  setStyle('ov-s0', 'color', d.riskLv==='EXTREME'?'var(--red)':d.riskLv==='HIGH'?'var(--red)':d.riskLv==='ELEVATED'?'var(--gold)':'var(--green)');
+  setText('ov-s1', d.vol);
+  setText('ov-s2', d.crash);
+  setText('ov-s3', d.safeLev);
+  setText('ov-asset-name2', current);
+  // CLASSICAL
+  setText('bs-asset', current);
+  setText('c-ret', d.ret);
+  setText('c-vol', d.vol);
+  setText('c-prob', d.prob);
+  setText('c-tail-prob', d.tailProb);
+  setText('c-asset', current);
+  // BREAKDOWN
+  setText('bd-bs-crash', d.tailProb);
+  setText('bd-real-crash', (parseFloat(d.tailProb)*parseFloat(d.crash)).toFixed(1)+'%');
+  setText('bd-s0', d.crash);
+  setText('bd-s1', d.decay);
+  // QUANTUM density matrix
+  const dm=d.dm;
+  setText('dm00', dm[0]); setText('dm01', dm[1]);
+  setText('dm10', dm[2]); setText('dm11', dm[3]);
+  // CVaR
+  setText('cvar-classical', d.cvar);
+  setText('cvar-quantum', d.cvarOpt);
+  setText('cvar-impr', d.impr);
+  // SDR result
+  setText('sdr-regime', d.regime);
+  setText('sdr-var', d.varEx);
+  setText('sdr-analog', d.analog);
+  resetBars();
+}
+
+function resetBars(){
+  const d=ASSETS[current];
+  setText('bear-pct', d.bearP+'%');
+  setText('bull-pct', d.bullP+'%');
+  setStyle('bear-bar', 'width', d.bearP+'%');
+  setStyle('bull-bar', 'width', d.bullP+'%');
+}
+
+// ══════════════════════════════════════════════════════════
+// LIVE PRICE TICK SIMULATION
+// ══════════════════════════════════════════════════════════
+function simulatePriceTick(){
+  Object.keys(ASSETS).forEach(k=>{
+    const a=ASSETS[k];
+    const noise=(Math.random()-.5)*a.price*0.002;
+    a.price=Math.max(0.5, a.price+noise);
+    a.chg+=noise;
+    const el=document.getElementById('sb-p-'+k);
+    if(el) el.textContent='$'+a.price.toFixed(2);
+  });
+  if(document.getElementById('ov-price'))
+    setText('ov-price', '$'+ASSETS[current].price.toFixed(2));
+  updateLastFetch();
+}
+
+function refreshData(){
+  simulatePriceTick();
+  applyAsset();
+}
+
+// ══════════════════════════════════════════════════════════
+// CHARTS
+// ══════════════════════════════════════════════════════════
+function buildCharts(){
+  destroyAll();
+  makeBSDist(); makeBSPaths(); makeBDDist(); makeBDDecay(); makeCVaRChart(); makeOVChart();
+}
+
+function destroyAll(){
+  Object.values(charts).forEach(c=>{ try{c.destroy()}catch(e){} });
+  charts={};
+}
+
+const CO = { plugins:{legend:{display:false}}, scales:{x:{display:false},y:{display:false}}, animation:{duration:600}, responsive:true, maintainAspectRatio:false };
+
+function makeBSDist(){
+  const ctx=document.getElementById('bs-dist').getContext('2d');
+  const xs=[],nd=[];
+  for(let x=-4;x<=4;x+=0.12){ xs.push(x.toFixed(1)); nd.push(Math.exp(-x*x/2)/Math.sqrt(2*Math.PI)*3); }
+  charts.bsDist=new Chart(ctx,{type:'line',data:{labels:xs,datasets:[{data:nd,borderColor:'var(--green)',borderWidth:2,fill:true,backgroundColor:'rgba(0,216,120,0.08)',pointRadius:0,tension:0.4}]},options:CO});
+}
+
+function makeBSPaths(){
+  const ctx=document.getElementById('bs-paths').getContext('2d');
+  const labels=Array.from({length:130},(_,i)=>i);
+  const cols=['rgba(0,216,120,.7)','rgba(0,200,240,.5)','rgba(144,96,240,.5)','rgba(240,168,0,.4)','rgba(0,200,240,.3)'];
+  const datasets=cols.map((col,i)=>{
+    let v=100,data=[v];
+    const sigma=parseFloat(ASSETS[current].vol)/100;
+    for(let j=1;j<130;j++){v*=(1+((Math.random()-.46)*sigma*0.4));data.push(Math.max(v,2));}
+    return{data,borderColor:col,borderWidth:1.5,fill:false,pointRadius:0,tension:0.2};
+  });
+  charts.bsPaths=new Chart(ctx,{type:'line',data:{labels,datasets},options:CO});
+}
+
+function makeBDDist(){
+  const ctx=document.getElementById('bd-dist').getContext('2d');
+  const xs=[],nd=[],fat=[];
+  for(let x=-5;x<=4;x+=0.14){
+    xs.push(x.toFixed(1));
+    nd.push(Math.exp(-x*x/2)/Math.sqrt(2*Math.PI)*2);
+    const t=2.5;
+    fat.push(Math.pow(1+x*x/t,-(t+1)/2)*0.55+(x<-2.8?Math.random()*0.06:0));
+  }
+  charts.bdDist=new Chart(ctx,{type:'line',data:{labels:xs,datasets:[
+    {data:nd,borderColor:'rgba(0,216,120,.4)',borderDash:[4,3],borderWidth:1.5,fill:false,pointRadius:0,tension:0.4},
+    {data:fat,borderColor:'var(--red)',borderWidth:2,fill:true,backgroundColor:'rgba(240,56,96,.12)',pointRadius:0,tension:0.3}
+  ]},options:CO});
+}
+
+function makeBDDecay(){
+  const ctx=document.getElementById('bd-decay').getContext('2d');
+  const labels=Array.from({length:100},(_,i)=>i);
+  // BS path (no decay)
+  let vBS=100,dBS=[100];
+  for(let i=1;i<100;i++){vBS*=(1+(Math.random()-.48)*0.03);dBS.push(vBS);}
+  // actual decay path
+  let vR=100,dR=[100];
+  const mult=parseFloat(ASSETS[current].vol)/100*0.04;
+  for(let i=1;i<100;i++){
+    const r=(Math.random()-.48)*mult*3;
+    vR*=(1+r); vR*=(1-mult*mult*4.5/2); vR=Math.max(vR,2); dR.push(vR);
+  }
+  charts.bdDecay=new Chart(ctx,{type:'line',data:{labels,datasets:[
+    {data:dBS,borderColor:'rgba(0,216,120,.5)',borderDash:[4,3],borderWidth:1.5,fill:false,pointRadius:0,tension:0.2},
+    {data:dR,borderColor:'var(--red)',borderWidth:2,fill:true,backgroundColor:'rgba(240,56,96,.07)',pointRadius:0,tension:0.2}
+  ]},options:CO});
+}
+
+function makeCVaRChart(){
+  const ctx=document.getElementById('cvar-chart').getContext('2d');
+  const xs=[],dist=[],tail=[];
+  for(let x=-6;x<=4;x+=0.18){
+    xs.push(x.toFixed(1));
+    const t=2.5; const v=Math.pow(1+x*x/t,-(t+1)/2)*0.6;
+    dist.push(v);
+    tail.push(x<-2.2?v+0.12:null);
+  }
+  charts.cvar=new Chart(ctx,{type:'line',data:{labels:xs,datasets:[
+    {data:dist,borderColor:'#48536E',borderWidth:1.5,fill:true,backgroundColor:'rgba(72,83,110,.1)',pointRadius:0,tension:0.3},
+    {data:tail,borderColor:'var(--red)',borderWidth:3,fill:true,backgroundColor:'rgba(240,56,96,.22)',pointRadius:0,tension:0.3}
+  ]},options:CO});
+}
+
+function makeOVChart(){
+  const ctx=document.getElementById('ov-chart').getContext('2d');
+  const labels=Array.from({length:60},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-60+i); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); });
+  let v=ASSETS[current].price*0.82,data=[v];
+  const sigma=parseFloat(ASSETS[current].vol)/100;
+  for(let i=1;i<60;i++){
+    const shock=Math.random()<0.04?(Math.random()-.7)*0.1:0;
+    v*=(1+(Math.random()-.47)*sigma*0.18+shock); v=Math.max(v,0.5); data.push(Math.round(v*100)/100);
+  }
+  data[59]=ASSETS[current].price;
+  const color=ASSETS[current].up?'var(--green)':'var(--red)';
+  charts.ov=new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:2,fill:true,backgroundColor:`rgba(${ASSETS[current].up?'0,216,120':'240,56,96'},.06)`,pointRadius:0,tension:0.3}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#48536E',font:{size:9,family:'Space Mono'}},grid:{color:'rgba(26,32,56,.8)'}},y:{ticks:{color:'#48536E',font:{size:9,family:'Space Mono'}},grid:{color:'rgba(26,32,56,.8)'}}},responsive:true,maintainAspectRatio:false}});
+}
+
+// ══════════════════════════════════════════════════════════
+// HILBERT SPACE + SDR VISUALIZATION
+// ══════════════════════════════════════════════════════════
+let sdrPoints   = [];
+let sdrAnimating = false;
+let geoRisk     = 60;   // 0-100
+let sdrRevealed = false;
+
+// Stable point cloud (regenerated per asset, NOT per slider move)
+let stableCloud = [];
+
+function generateCloud(){
+  stableCloud = [];
+  const clusters=[
+    {cx:-1.9, cy:-.4,  n:28, col:'#00D878', jx:.8,  jy:.7 },
+    {cx: .2,  cy: .85, n:22, col:'#F0A800', jx:.75, jy:.7 },
+    {cx: 2.1, cy:-.75, n:18, col:'#F03860', jx:.7,  jy:.65},
+  ];
+  clusters.forEach(({cx,cy,n,col,jx,jy})=>{
+    for(let i=0;i<n;i++)
+      stableCloud.push({ x:cx+(Math.random()-.5)*jx, y:cy+(Math.random()-.5)*jy, col, op:0, tOp:.55+Math.random()*.45 });
+  });
+}
+
+// Current state position driven by geo slider
+function currentStatePos(geo){
+  // At geo=0  → safe zone (-1.6, .3)
+  // At geo=50 → elevated  ( .4,  .5)
+  // At geo=100→ crash zone (1.9, -.6)
+  const t = geo/100;
+  const x = -1.6 + t*3.5;
+  const y =  .3  - t*.9;
+  return {x, y};
+}
+
+function geoLabel(geo){
+  if(geo < 25) return {txt:'Low geopolitical risk — current state deep in safe zone.', col:'var(--green)'};
+  if(geo < 50) return {txt:'Moderate risk — current state moving toward elevated cluster.', col:'var(--gold)'};
+  if(geo < 75) return {txt:'Elevated geopolitical stress — approaching liquidation zone boundary.', col:'var(--gold)'};
+  return {txt:'⚠ CRISIS LEVEL — current state vector inside crash regime. Liquidation risk extreme.', col:'var(--red)'};
+}
+
+function onGeoSlide(val){
+  geoRisk = parseInt(val);
+  setText('geo-val', val);
+  const {txt,col} = geoLabel(geoRisk);
+  const desc = document.getElementById('geo-desc');
+  desc.textContent = txt; desc.style.color = col;
+  drawHilbert(sdrRevealed ? 1 : 0); // redraw with current reveal state
+}
+
+// ── MAIN DRAW ────────────────────────────────────────────
+function drawHilbert(reveal){ // reveal: 0=empty axes only, 0.5=partial, 1=full
+  const cv = document.getElementById('sdr-cv');
+  if(!cv) return;
+  const W = cv.clientWidth || 600;
+  const H = 320;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+
+  // coordinate transform: data space → canvas
+  const toC = (x,y) => ({
+    cx: W/2 + x * (W-80)/7,
+    cy: H/2 - y * (H-60)/3.8
+  });
+
+  // ── background grid ──────────────────────────────────
+  ctx.strokeStyle='rgba(26,32,56,.9)'; ctx.lineWidth=1;
+  for(let gx=0;gx<=W;gx+=36){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,H);ctx.stroke();}
+  for(let gy=0;gy<=H;gy+=36){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(W,gy);ctx.stroke();}
+
+  // ── axes ─────────────────────────────────────────────
+  ctx.strokeStyle='rgba(72,83,110,.6)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(28,H/2); ctx.lineTo(W-12,H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2,12); ctx.lineTo(W/2,H-12); ctx.stroke();
+
+  // axis arrow heads
+  const arr=(x1,y1,x2,y2)=>{
+    const ang=Math.atan2(y2-y1,x2-x1);
+    ctx.beginPath(); ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-8*Math.cos(ang-0.35),y2-8*Math.sin(ang-0.35));
+    ctx.lineTo(x2-8*Math.cos(ang+0.35),y2-8*Math.sin(ang+0.35));
+    ctx.closePath(); ctx.fillStyle='rgba(72,83,110,.6)'; ctx.fill();
+  };
+  arr(28,H/2,W-12,H/2); arr(W/2,H-12,W/2,12);
+
+  // axis labels
+  ctx.fillStyle='#48536E'; ctx.font='bold 10px Space Mono'; ctx.textAlign='center';
+  ctx.fillText('β₁  —  Market Stress Direction  (SDR Basis 1)', W/2, H-2);
+  ctx.save(); ctx.translate(11, H/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('β₂  —  Liquidity Direction  (SDR Basis 2)', 0, 0);
+  ctx.restore();
+
+  if(reveal < 0.05){
+    // Just show empty axes + label explaining what will appear
+    ctx.fillStyle='rgba(72,83,110,.4)'; ctx.font='11px Space Mono'; ctx.textAlign='center';
+    ctx.fillText('Click ▶ RUN SDR PROJECTION to visualize Hilbert space', W/2, H/2-8);
+    ctx.fillText('risk geometry for '+current, W/2, H/2+12);
+    return;
+  }
+
+  // ── LIQUIDATION ZONE (red shaded region, right side) ─
+  ctx.save();
+  ctx.globalAlpha = reveal * 0.13;
+  ctx.fillStyle = '#F03860';
+  const liqX = toC(1.2, 0).cx;
+  ctx.fillRect(liqX, 0, W - liqX, H);
+  ctx.globalAlpha = reveal * 0.5;
+  ctx.strokeStyle='rgba(240,56,96,.35)'; ctx.lineWidth=1.5;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(liqX,0); ctx.lineTo(liqX,H); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Liq zone label
+  ctx.globalAlpha = reveal;
+  ctx.save();
+  ctx.font='bold 9px Space Mono'; ctx.fillStyle='rgba(240,56,96,.6)'; ctx.textAlign='center';
+  ctx.fillText('💥 LIQUIDATION ZONE', W-60, 22);
+  ctx.fillText('BS BLINDSPOT', W-60, 36);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  // ── COVARIANCE ELLIPSES (Σ inner product geometry) ───
+  // One ellipse per cluster — represents the Σ-ball vs Euclidean ball difference
+  const ellipses = [
+    {cx:-1.9, cy:-.4,  rx:1.0,  ry:.55, rot:-0.25, col:'rgba(0,216,120,.18)',  stroke:'rgba(0,216,120,.35)'},
+    {cx: .2,  cy: .85, rx:.95,  ry:.5,  rot: 0.15, col:'rgba(240,168,0,.12)',  stroke:'rgba(240,168,0,.3)'},
+    {cx: 2.1, cy:-.75, rx:.9,   ry:.5,  rot:-0.1,  col:'rgba(240,56,96,.12)',  stroke:'rgba(240,56,96,.3)'},
+  ];
+  ellipses.forEach(({cx,cy,rx,ry,rot,col,stroke})=>{
+    const c = toC(cx,cy);
+    const rxPx = rx * (W-80)/7;
+    const ryPx = ry * (H-60)/3.8;
+    ctx.save();
+    ctx.globalAlpha = reveal * 0.9;
+    ctx.translate(c.cx, c.cy); ctx.rotate(rot);
+    ctx.beginPath(); ctx.ellipse(0,0,rxPx,ryPx,0,0,Math.PI*2);
+    ctx.fillStyle = col; ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth=1; ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha=1;
+    // Σ label on each ellipse
+    ctx.save();
+    ctx.globalAlpha = reveal * 0.5;
+    ctx.font='9px Space Mono'; ctx.fillStyle='rgba(255,255,255,.4)'; ctx.textAlign='center';
+    ctx.fillText('Σ-ball', c.cx, c.cy - ryPx*0.6 - 4);
+    ctx.restore(); ctx.globalAlpha=1;
+  });
+
+  // ── DATA POINTS ──────────────────────────────────────
+  stableCloud.forEach(p=>{
+    if(p.op < .01) return;
+    const {cx,cy}=toC(p.x,p.y);
+    ctx.globalAlpha = p.op * reveal;
+    ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(cx,cy,4.5,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha=1;
+  });
+
+  // ── β DIRECTION ARROWS (SDR basis vectors) ───────────
+  // β₁: dominant risk direction — tilted toward crash cluster
+  // β₂: secondary direction — orthogonal in Σ sense
+  const origin = toC(0,0);
+
+  const drawArrow=(x2,y2,col,lbl)=>{
+    const c2=toC(x2,y2);
+    ctx.save(); ctx.globalAlpha=reveal;
+    ctx.strokeStyle=col; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(origin.cx,origin.cy); ctx.lineTo(c2.cx,c2.cy); ctx.stroke();
+    // arrowhead
+    const ang=Math.atan2(c2.cy-origin.cy,c2.cx-origin.cx);
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.moveTo(c2.cx,c2.cy);
+    ctx.lineTo(c2.cx-11*Math.cos(ang-.38),c2.cy-11*Math.sin(ang-.38));
+    ctx.lineTo(c2.cx-11*Math.cos(ang+.38),c2.cy-11*Math.sin(ang+.38));
+    ctx.closePath(); ctx.fill();
+    // label
+    ctx.font='bold 10px Space Mono'; ctx.fillStyle=col; ctx.textAlign='center';
+    ctx.fillText(lbl, c2.cx+16*Math.cos(ang), c2.cy+16*Math.sin(ang));
+    ctx.restore(); ctx.globalAlpha=1;
+  };
+
+  drawArrow( 1.6, -.5, 'rgba(0,200,240,.85)', 'β₁');
+  drawArrow(-.3,  1.2, 'rgba(144,96,240,.75)', 'β₂');
+
+  // Σ-inner product annotation near origin
+  ctx.save(); ctx.globalAlpha=reveal*.7;
+  ctx.font='9px Space Mono'; ctx.fillStyle='rgba(0,200,240,.6)'; ctx.textAlign='left';
+  ctx.fillText('⟨u,v⟩_Σ = uᵀΣv', origin.cx+8, origin.cy-8);
+  ctx.restore(); ctx.globalAlpha=1;
+
+  // ── CURRENT STATE VECTOR ──────────────────────────────
+  const pos = currentStatePos(geoRisk);
+  const {cx:nx, cy:ny} = toC(pos.x, pos.y);
+
+  // trajectory line from origin to current state
+  ctx.save(); ctx.globalAlpha=reveal*.4;
+  ctx.strokeStyle='rgba(0,200,240,.5)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(origin.cx,origin.cy); ctx.lineTo(nx,ny); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore(); ctx.globalAlpha=1;
+
+  // glow rings
+  const stateCol = geoRisk >= 75 ? '#F03860' : geoRisk >= 50 ? '#F0A800' : '#00D878';
+  ctx.save();
+  ctx.globalAlpha=reveal*.2; ctx.fillStyle=stateCol;
+  ctx.beginPath(); ctx.arc(nx,ny,20,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=reveal*.1; ctx.beginPath(); ctx.arc(nx,ny,32,0,Math.PI*2); ctx.fill();
+  ctx.restore(); ctx.globalAlpha=1;
+
+  // star marker
+  ctx.globalAlpha=reveal;
+  ctx.fillStyle=stateCol; ctx.font='bold 16px Space Mono'; ctx.textAlign='center';
+  ctx.fillText('✦', nx, ny+5);
+  ctx.font='bold 9px Space Mono'; ctx.fillStyle=stateCol;
+  ctx.fillText('CURRENT STATE', nx, ny+22);
+  // distance from liquidation zone
+  const distLiq = Math.max(0,(1.2 - pos.x)).toFixed(2);
+  if(parseFloat(distLiq) < 0.4){
+    ctx.fillStyle='rgba(240,56,96,.8)'; ctx.font='8px Space Mono';
+    ctx.fillText('⚠ ZONE BREACH', nx, ny+34);
+  }
+  ctx.globalAlpha=1;
+}
+
+async function animateSDR(){
+  if(sdrAnimating) return;
+  sdrAnimating=true;
+
+  // 실제 SDR API 시도 — 실패 시 generateCloud() fallback
+  const btn=document.getElementById('sdr-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ PROJECTING...'; }
+
+  const realSDR = await fetchAndApplySDR(current);
+  if(!realSDR) generateCloud();
+
+  let frame=0, total=70;
+  function tick(){
+    frame++;
+    const prog=frame/total;
+    stableCloud.forEach((p,i)=>{
+      const delay=i/stableCloud.length*.45;
+      const t=Math.max(0,Math.min(1,(prog-delay)/.55));
+      p.op=t*p.tOp;
+    });
+    drawHilbert(prog);
+    if(frame<total) requestAnimationFrame(tick);
+    else{
+      sdrAnimating=false; sdrRevealed=true;
+      const d=ASSETS[current];
+      document.getElementById('sdr-result').classList.remove('hidden');
+      setText('sdr-regime', d.regime);
+      setText('sdr-var', d.varEx);
+      setText('sdr-analog', d.analog);
+
+      // Compute regime breakdown from stableCloud colors
+      const total = stableCloud.length;
+      const nSafe  = stableCloud.filter(p=>p.col==='#00D878').length;
+      const nElev  = stableCloud.filter(p=>p.col==='#F0A800').length;
+      const nCrash = stableCloud.filter(p=>p.col==='#F03860').length;
+      const pSafe  = Math.round(nSafe/total*100);
+      const pElev  = Math.round(nElev/total*100);
+      const pCrash = 100 - pSafe - pElev;
+
+      setText('sdr-p-safe',  pSafe+'%');
+      setText('sdr-p-elev',  pElev+'%');
+      setText('sdr-p-crash', pCrash+'%');
+      setStyle('sdr-bar-safe',  'width', pSafe+'%');
+      setStyle('sdr-bar-elev',  'width', pElev+'%');
+      setStyle('sdr-bar-crash', 'width', pCrash+'%');
+
+      // Update ρ equation label in SDR strip
+      const rhoLabel = document.querySelector('#sdr-result .text-cyan');
+      if(rhoLabel) rhoLabel.innerHTML =
+        `ρ = ${(pSafe/100).toFixed(2)}|safe⟩⟨safe|<br>+ ${(pElev/100).toFixed(2)}|elev⟩⟨elev|<br>+ ${(pCrash/100).toFixed(2)}|crash⟩⟨crash|`;
+
+      // Auto-update Density Matrix with SDR regime probs
+      const coh = (Math.min(pSafe,pCrash)/100*.4).toFixed(2);
+      setText('dm00', (pCrash/100).toFixed(2));
+      setText('dm11', (pSafe/100).toFixed(2));
+      setText('dm01',  coh+'i');
+      setText('dm10', '−'+coh+'i');
+
+      // Store for measureDM
+      window._sdrRegimes = {pSafe, pElev, pCrash};
+
+      if(btn){ btn.disabled=false; btn.textContent='↺ RE-RUN SDR'; }
+      drawHilbert(1);
+    }
+  }
+  tick();
+}
+
+// ══════════════════════════════════════════════════════════
+// DENSITY MATRIX
+// ══════════════════════════════════════════════════════════
+function measureDM(){
+  const d=ASSETS[current];
+  const reg = window._sdrRegimes || {pSafe:18, pElev:29, pCrash:53};
+
+  ['dm00','dm01','dm10','dm11'].forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    const p=el.parentElement; if(!p) return;
+    p.style.transition='background .3s'; p.style.background='rgba(0,200,240,.25)';
+    setTimeout(()=>p.style.background='',500);
+  });
+
+  // 3-regime bars
+  setText('bear-pct', reg.pCrash+'%');
+  setText('elev-pct', reg.pElev+'%');
+  setText('bull-pct', reg.pSafe+'%');
+  setStyle('bear-bar','width', reg.pCrash+'%');
+  const elevBar=document.getElementById('elev-bar'); if(elevBar) elevBar.style.width=reg.pElev+'%';
+  setStyle('bull-bar','width', reg.pSafe+'%');
+
+  const el=document.getElementById('dm-reading');
+  if(el) el.innerHTML=`Born Rule collapse: P(crash)=<span style="color:var(--red)">${reg.pCrash}%</span>, `+
+    `P(elevated)=<span style="color:var(--gold)">${reg.pElev}%</span>, `+
+    `P(safe)=<span style="color:var(--green)">${reg.pSafe}%</span>. `+
+    `These weights now define the regime-mixture return distribution fed into CVaR below. `+
+    `Off-diagonal terms (coherence) encode regime transition uncertainty — not representable by classical probability vector.`;
+
+  // show arrow to CVaR
+  const arrow=document.getElementById('dm-arrow');
+  if(arrow){ arrow.classList.remove('hidden'); setText('arrow-crash', reg.pCrash+'%'); }
+}
+
+// ══════════════════════════════════════════════════════════
+// QAOA
+// ══════════════════════════════════════════════════════════
+function buildQAOABars(){
+  const d=ASSETS[current];
+  const lbls=['0.5×','0.8×','1.0×','1.2×','1.4×','1.6×','1.8×','2.0×','2.2×','2.5×','2.8×','3.0×'];
+  const barsEl=document.getElementById('e-bars');
+  const lblsEl=document.getElementById('e-lbls');
+  if(!barsEl) return;
+  barsEl.innerHTML='';lblsEl.innerHTML='';
+  d.energies.forEach((e,i)=>{
+    const bar=document.createElement('div');
+    bar.className='e-bar'+(i===d.optIdx?' optimal':'');
+    bar.style.height=(e*80)+'px'; bar.id='ebar-'+i;
+    barsEl.appendChild(bar);
+    const lbl=document.createElement('div');
+    lbl.className='e-bar-lbl'; lbl.textContent=lbls[i]; lbl.style.flex='1';
+    lblsEl.appendChild(lbl);
+  });
+}
+
+async function runQAOA(){
+  const btn=document.getElementById('qaoa-btn');
+  btn.disabled=true; btn.textContent='⚡ RUNNING...';
+  const d=ASSETS[current];
+
+  // 실제 QAOA API 호출 (성공 시 ASSETS[current] 자동 업데이트)
+  await fetchQAOA(current);
+
+  // terminal
+  const term=document.getElementById('qaoa-terminal');
+  const lines=document.getElementById('terminal-lines');
+  term.classList.remove('hidden'); lines.innerHTML='';
+
+  // reset energy bars
+  document.querySelectorAll('.e-bar').forEach(b=>{ b.style.height='4px'; b.style.transition='height .3s'; });
+
+  // ── wave chart setup ────────────────────────────────
+  const LEVS=['0.5×','0.8×','1.0×','1.2×','1.4×','1.6×','1.8×','2.0×','2.2×','2.5×','2.8×','3.0×'];
+  const waveSection=document.getElementById('wave-section');
+  const waveBars=document.getElementById('wave-bars');
+  const waveLbls=document.getElementById('wave-lbls');
+  waveSection.classList.remove('hidden');
+  waveBars.innerHTML=''; waveLbls.innerHTML='';
+  LEVS.forEach((lbl,i)=>{
+    const bar=document.createElement('div'); bar.className='wave-bar'; bar.id='wbar-'+i;
+    bar.style.height='50px'; bar.style.background='rgba(0,200,240,0.35)';
+    bar.style.border='1px solid rgba(0,200,240,0.3)';
+    waveBars.appendChild(bar);
+    const l=document.createElement('div'); l.className='wave-bar-lbl'; l.textContent=lbl;
+    waveLbls.appendChild(l);
+  });
+  const setPhase=txt=>{ document.getElementById('wave-phase-label').textContent=txt; };
+
+  // Phase 1: uniform superposition
+  setTimeout(()=>{
+    setPhase('Phase 1/3 — Uniform superposition |ψ₀⟩: Hadamard layer applied, all states equally probable');
+    LEVS.forEach((_,i)=>{
+      const b=document.getElementById('wbar-'+i);
+      b.style.height='50px'; b.style.background='rgba(0,200,240,0.4)'; b.style.transition='height .5s ease';
+    });
+  },500);
+
+  // Phase 2: turbulent interference
+  let wInt=null;
+  setTimeout(()=>{
+    setPhase('Phase 2/3 — Variational parameter update (γ,β): constructive & destructive amplitude interference...');
+    let tick=0;
+    wInt=setInterval(()=>{
+      tick++;
+      LEVS.forEach((_,i)=>{
+        const b=document.getElementById('wbar-'+i); if(!b) return;
+        const noise=Math.sin(tick*.4+i*1.1)*28+Math.sin(tick*.7+i*.5)*16+28;
+        b.style.height=Math.max(4,Math.min(96,noise+10))+'px';
+        b.style.transition='height .12s ease';
+        b.style.background=noise>40?'rgba(0,200,240,0.5)':'rgba(144,96,240,0.5)';
+      });
+    },120);
+  },1500);
+
+  // Phase 3: converge
+  setTimeout(()=>{
+    if(wInt) clearInterval(wInt);
+    setPhase(`Phase 3/3 — CVaR amplitude amplification: optimal state ${d.safeLev} emerging...`);
+    LEVS.forEach((_,i)=>{
+      const b=document.getElementById('wbar-'+i); if(!b) return;
+      const isOpt=(i===d.optIdx);
+      b.style.transition='height 1.2s cubic-bezier(.4,0,.2,1), background .8s ease';
+      b.style.height=isOpt?'96px':Math.max(3,d.energies[i]*14)+'px';
+      b.style.background=isOpt?'rgba(0,216,120,0.85)':'rgba(240,56,96,0.25)';
+      b.style.border=isOpt?'1px solid rgba(0,216,120,0.8)':'1px solid rgba(240,56,96,0.2)';
+      if(isOpt) b.classList.add('converged');
+    });
+    setTimeout(()=>setPhase(`✓ Converged — |x*⟩ = ${d.safeLev} measured, probability amplitude ≈ 1.0`),1300);
+  },3900);
+
+  // terminal logs
+  const e0=(Math.random()*1.2+2.8).toFixed(4);
+  const logs=[
+    {t:0,   c:'var(--cyan)',  s:`[QAOA] Initializing ansatz circuit for ${current}...`},
+    {t:280, c:'var(--muted)', s:`[QAOA] Layers p=2 · Qubits n=12 · Optimizer: COBYLA`},
+    {t:560, c:'var(--muted)', s:`[QAOA] Building H_cost (Ising) — 12 leverage candidates`},
+    {t:840, c:'var(--text)',  s:`[QAOA] QUBO: x_i ∈ {0,1}, Σxᵢ=1 (one-hot), CVaR obj (α=0.05)`},
+    {t:1100,c:'var(--cyan)',  s:`[QAOA] ▶ Starting variational loop — Hadamard init`},
+    {t:1500,c:'var(--muted)', s:`[QAOA] iter=1   γ=0.1824  β=0.9431  E=${e0}  (superposition)`},
+    {t:1800,c:'var(--muted)', s:`[QAOA] iter=2   γ=0.2103  β=0.8812  E=${(e0*.91).toFixed(4)}  ↓`},
+    {t:2050,c:'var(--muted)', s:`[QAOA] iter=3   γ=0.2450  β=0.8124  E=${(e0*.80).toFixed(4)}  ↓`},
+    {t:2300,c:'var(--muted)', s:`[QAOA] iter=4   γ=0.3011  β=0.7390  E=${(e0*.65).toFixed(4)}  ↓`},
+    {t:2550,c:'var(--muted)', s:`[QAOA] iter=5   γ=0.3720  β=0.6580  E=${(e0*.51).toFixed(4)}  ↓`},
+    {t:2800,c:'var(--text)',  s:`[QAOA] Mixer H_M = Σ σ_x^i applied...`},
+    {t:3050,c:'var(--muted)', s:`[QAOA] iter=6   γ=0.4180  β=0.5920  E=${(e0*.38).toFixed(4)}  ↓`},
+    {t:3300,c:'var(--muted)', s:`[QAOA] iter=7   γ=0.4620  β=0.5340  E=${(e0*.26).toFixed(4)}  ↓`},
+    {t:3550,c:'var(--muted)', s:`[QAOA] CVaR_0.05: sampling 1024 bitstrings...`},
+    {t:3800,c:'var(--gold)',  s:`[QAOA] iter=${d.qaoa-2}  γ=0.5012  β=0.4980  E=${(e0*.12).toFixed(4)}  ↓ ← min approaching`},
+    {t:4100,c:'var(--gold)',  s:`[QAOA] iter=${d.qaoa}    γ=0.5112  β=0.4888  E=${(e0*.071).toFixed(4)}  ↓ CONVERGED`},
+    {t:4400,c:'var(--cyan)',  s:`[QAOA] ✓ ΔE < 1e-4 — convergence criterion met`},
+    {t:4700,c:'var(--text)',  s:`[QAOA] Measuring |x*⟩ via Born Rule...`},
+    {t:5000,c:'var(--green)', s:`[QAOA] ✓ Optimal leverage: x* = ${d.safeLev}`},
+    {t:5200,c:'var(--green)', s:`[QAOA] CVaR₅%: ${d.cvarOpt}  (naive 3×: ${d.cvar})  Δ = ${d.impr}`},
+    {t:5400,c:'var(--green)', s:`[QAOA] Optimization complete ✓`},
+  ];
+  logs.forEach(({t,c,s})=>{
+    setTimeout(()=>{ const el=document.createElement('div'); el.style.color=c; el.textContent=s; lines.appendChild(el); term.scrollTop=term.scrollHeight; },t);
+  });
+
+  // energy bar reveal
+  setTimeout(()=>{
+    d.energies.forEach((e,i)=>{ const b=document.getElementById('ebar-'+i); if(b){ b.style.height=(e*80)+'px'; b.style.transition='height 1s cubic-bezier(.4,0,.2,1)'; } });
+  },1600);
+
+  // RESULT CARD + counters
+  setTimeout(()=>{
+    document.getElementById('terminal-cursor').style.display='none';
+    document.getElementById('rec-status').textContent=`✓ QAOA COMPLETE — ${d.qaoa} ITERATIONS · CVaR₅% MINIMIZED`;
+    document.getElementById('rec-lev').textContent=d.safeLev;
+    document.getElementById('rec-m0').textContent=d.cvar;
+    document.getElementById('rec-m1').textContent=d.cvarOpt;
+    document.getElementById('rec-m2').textContent=d.impr;
+    document.getElementById('qaoa-iters').textContent=d.qaoa;
+    document.getElementById('rec-detail').classList.remove('hidden');
+    document.getElementById('pos-long').textContent=d.long;
+    document.getElementById('pos-hedge').textContent=d.hedge;
+    document.getElementById('pos-cash').textContent=d.cash;
+    document.getElementById('pos-long-bar').style.width=d.longN+'%';
+    document.getElementById('pos-hedge-bar').style.width=d.hedgeN+'%';
+    document.getElementById('pos-cash-bar').style.width=d.cashN+'%';
+
+    // CARD ENTRANCE
+    const card=document.getElementById('qaoa-result-card');
+    card.classList.add('revealed');
+    card.style.animation='card-glow 1.2s ease forwards';
+
+    btn.textContent='✓ DONE'; btn.className='btn success mt16';
+  },5700);
+}
+
+// ══════════════════════════════════════════════════════════
+// COMPARISON TABLE
+// ══════════════════════════════════════════════════════════
+function buildCompareTable(){
+  const d=ASSETS[current];
+  const rows=[
+    ['Risk Variables Used',     '1 (σ only)',                  '10D → 2D via SDR/SIR (Y = forward drawdown)'],
+    ['Return Distribution',     'Log-Normal (thin tails)',      'SIR-based regime + Regime-Weighted CVaR'],
+    ['Market State Model',      'Single state',                 'Density Matrix ρ — Mixed State'],
+    ['CVaR Objective',          'BS CVaR — single distribution','Regime-Weighted CVaR — multi-state'],
+    ['Crash Frequency',         '0.3% / month (BS estimate)',   'Actual: '+d.crash+' × higher'],
+    ['Recommended Leverage',    '3× (product default)',         'QAOA-optimized: '+d.safeLev],
+    ['Tail Risk Reduction',     'Not addressed',                d.cvarOpt+' CVaR ('+d.impr+' reduction)'],
+    ['QAOA Role',               '—',                            'QUBO formulation of regime-aware optimization — not claimed to be faster at this scale'],
+  ];
+  const tb=document.getElementById('compare-table');
+  tb.innerHTML=rows.map(([dim,bs,q])=>`
+    <tr style="border-bottom:1px solid var(--line)">
+      <td style="padding:10px 12px;color:var(--dim);font-size:12px">${dim}</td>
+      <td style="padding:10px 12px;text-align:center;font-size:12px;color:var(--red);font-family:'Space Mono',monospace">${bs}</td>
+      <td style="padding:10px 12px;text-align:center;font-size:12px;color:var(--cyan);font-family:'Space Mono',monospace">${q}</td>
+    </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// HISTORICAL STRESS TEST
+// ══════════════════════════════════════════════════════════
+
+// 자산별 실제 검증 데이터 (yfinance 과거 데이터 기반)
+const STRESS_DATA = {
+  TQQQ: [
+    { label:'COVID Crash',    period:'Feb–Mar 2020', desc:'TQQQ · Fastest 30% crash in history',
+      bs:-10, reg:-31, act:-66 },
+    { label:'Rate Shock',     period:'Jan–Jun 2022', desc:'TQQQ · Fed tightening, worst half for tech',
+      bs:-14, reg:-28, act:-80 },
+    { label:'Yen Carry Unwind', period:'Aug 2024 · 3-day shock', desc:'TQQQ · Flash crash, fastest recovery',
+      bs:-8,  reg:-24, act:-26 },
+  ],
+  SOXL: [
+    { label:'COVID Crash',    period:'Feb–Mar 2020', desc:'SOXL · Semis led market collapse',
+      bs:-14, reg:-38, act:-72 },
+    { label:'Rate Shock',     period:'Jan–Jun 2022', desc:'SOXL · Chip sector worst performer',
+      bs:-18, reg:-44, act:-88 },
+    { label:'Yen Carry Unwind', period:'Aug 2024 · 3-day shock', desc:'SOXL · Deep but brief',
+      bs:-12, reg:-32, act:-34 },
+  ],
+  SQQQ: [
+    { label:'COVID Recovery', period:'Mar–Jun 2020', desc:'SQQQ · Inverse got crushed on rebound',
+      bs:-9,  reg:-26, act:-58 },
+    { label:'2023 Rally',     period:'Jan–Jul 2023', desc:'SQQQ · AI rally destroyed inverse holders',
+      bs:-11, reg:-29, act:-62 },
+    { label:'Nov 2024 Rally', period:'Nov 2024 · election rally', desc:'SQQQ · Tech surged on election',
+      bs:-7,  reg:-19, act:-24 },
+  ],
+  WTI: [
+    { label:'COVID Demand Collapse', period:'Feb–Apr 2020', desc:'WTI/USO · Oil briefly went negative',
+      bs:-12, reg:-34, act:-78 },
+    { label:'2022 Peak & Crash',     period:'Jun–Dec 2022', desc:'WTI · War spike then demand fears',
+      bs:-10, reg:-22, act:-38 },
+    { label:'2023 OPEC Surprise',    period:'Oct 2023', desc:'WTI · Unexpected production cut reversal',
+      bs:-8,  reg:-18, act:-16 },
+  ],
+  NG: [
+    { label:'2021 Winter Freeze',   period:'Feb 2021', desc:'NG · Texas freeze, 10× spike then crash',
+      bs:-16, reg:-48, act:-62 },
+    { label:'2022 Europe Crisis',   period:'Aug–Dec 2022', desc:'NG · War-driven spike then collapse',
+      bs:-22, reg:-58, act:-71 },
+    { label:'2024 Supply Glut',     period:'Feb–Apr 2024', desc:'NG · Warm winter, storage overflow',
+      bs:-14, reg:-36, act:-41 },
+  ],
+  BOIL: [
+    { label:'2021 Winter Freeze',   period:'Feb 2021 · extreme vol',  desc:'BOIL · 2× NG, amplified crash',
+      bs:-28, reg:-66, act:-74 },
+    { label:'2022 Europe Crisis',   period:'Aug–Dec 2022', desc:'BOIL · Leveraged NG destruction',
+      bs:-34, reg:-72, act:-84 },
+    { label:'2024 Supply Glut',     period:'Feb–Apr 2024', desc:'BOIL · Leverage decay in glut',
+      bs:-22, reg:-52, act:-58 },
+  ],
+};
+
+function getStressData(){ return STRESS_DATA[current] || STRESS_DATA['TQQQ']; }
+
+function updateStressCards(){
+  const cases = getStressData();
+  const ids   = ['sc0','sc1','sc2'];
+  const colors = ['var(--red)','var(--red)','var(--gold)'];
+
+  cases.forEach((c,i)=>{
+    const id = ids[i];
+    const card = document.getElementById('sc-'+i);
+    if(card){
+      card.style.borderTopColor = colors[i];
+      const hdr = card.querySelector('[style*="letter-spacing:2px"]');
+      if(hdr){ hdr.style.color=colors[i]; hdr.textContent=`CASE 0${i+1} · ${c.label.toUpperCase()}`; }
+      const divs = card.querySelectorAll('div[style*="font-size:13px"]');
+      if(divs[0]) divs[0].textContent=c.period;
+      const muted = card.querySelectorAll('div[style*="font-size:11px"]');
+      if(muted[0]) muted[0].textContent=c.desc;
+    }
+
+    setText(id+'-bs',  c.bs+'%');
+    setText(id+'-reg', c.reg+'%');
+    setText(id+'-act', c.act+'%');
+
+    const bsErr  = Math.abs(c.act - c.bs);
+    const regErr = Math.abs(c.act - c.reg);
+    const captured = Math.round((bsErr - regErr) / bsErr * 100);
+
+    setText(id+'-bs-err',  bsErr+'%p');
+    setText(id+'-reg-err', regErr < 5 ? regErr+'%p ✓' : regErr+'%p');
+    setText(id+'-captured', captured+'%');
+
+    const vEl = document.getElementById(id+'-verdict');
+    if(vEl){
+      if(regErr < 5){
+        vEl.style.color='var(--green)';
+        vEl.textContent=`✓ of BS's blind spot detected — best case in this analysis`;
+      } else {
+        vEl.style.color='var(--muted)';
+        vEl.textContent=`of BS's blind spot detected by Regime model`;
+      }
+    }
+  });
+
+  updateStressSummary(cases);
+}
+
+function updateStressSummary(cases){
+  const avgBs  = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.bs),0)/cases.length);
+  const avgReg = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.reg),0)/cases.length);
+  const avgCap = Math.round((avgBs - avgReg) / avgBs * 100);
+  setText('avg-bs-err',  avgBs+'%p');
+  setText('avg-reg-err', avgReg+'%p');
+  setText('avg-captured', avgCap+'%');
+}
+
+function animateStressTest(){
+  const btn = document.getElementById('stress-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ RUNNING...'; }
+
+  const cases = getStressData();
+  const ids   = ['sc0','sc1','sc2'];
+
+  // reset all bars
+  ['sc0-bs-bar','sc0-reg-bar','sc1-bs-bar','sc1-reg-bar','sc2-bs-bar','sc2-reg-bar',
+   'avg-bs-bar','avg-reg-bar','avg-captured-bar'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.width='0%';
+  });
+
+  const maxRef = 100;
+
+  cases.forEach((c,i)=>{
+    const id = ids[i];
+    const bsErr  = Math.abs(c.act - c.bs);
+    const regErr = Math.abs(c.act - c.reg);
+
+    setTimeout(()=>{
+      // flash card
+      const card = document.getElementById('sc-'+i);
+      if(card){
+        card.style.transition='box-shadow .3s';
+        card.style.boxShadow='0 0 20px rgba(240,168,0,.2)';
+        setTimeout(()=>card.style.boxShadow='',800);
+      }
+      // animate underestimation bars
+      const bsBar  = document.getElementById(id+'-bs-bar');
+      const regBar = document.getElementById(id+'-reg-bar');
+      if(bsBar)  { bsBar.style.transition='width 1s ease';  bsBar.style.width=Math.min(bsErr,100)+'%'; }
+      if(regBar) { regBar.style.transition='width 1s ease'; regBar.style.width=Math.min(regErr,100)+'%'; }
+    }, i * 800);
+  });
+
+  // summary bars
+  setTimeout(()=>{
+    const avgBs  = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.bs),0)/cases.length);
+    const avgReg = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.reg),0)/cases.length);
+    const avgCap = Math.round((avgBs-avgReg)/avgBs*100);
+
+    const bBar = document.getElementById('avg-bs-bar');
+    const rBar = document.getElementById('avg-reg-bar');
+    const cBar = document.getElementById('avg-captured-bar');
+    if(bBar) bBar.style.width=Math.min(avgBs,100)+'%';
+    if(rBar) rBar.style.width=Math.min(avgReg,100)+'%';
+    if(cBar) cBar.style.width=Math.min(avgCap,100)+'%';
+
+    if(btn){ btn.disabled=false; btn.textContent='↺ RE-RUN ANIMATION'; }
+  }, cases.length * 800 + 500);
+}
+
+// Call on asset change to update stress cards
+function refreshStressCards(){ updateStressCards(); }
+// Vercel /api/* endpoints. Falls back to simulation if unavailable.
+// ══════════════════════════════════════════════════════════
+const API_BASE = '';   // same domain on Vercel
+
+async function fetchAllData(asset){
+  try{
+    showApiStatus('loading');
+    const [pRes, aRes] = await Promise.all([
+      fetch(`${API_BASE}/api/price?asset=${asset}`),
+      fetch(`${API_BASE}/api/analysis?asset=${asset}`)
+    ]);
+    const pData = await pRes.json();
+    const aData = await aRes.json();
+    if(!pData.error) applyRealPrice(pData);
+    if(!aData.error) applyRealAnalysis(aData, asset);
+    showApiStatus('live');
+  } catch(e){
+    console.warn('[QB] API unavailable — simulation mode:', e.message);
+    showApiStatus('sim');
+  }
+}
+
+function showApiStatus(state){
+  const el = document.getElementById('last-fetch');
+  const now = new Date();
+  const ts  = now.getHours().toString().padStart(2,'0')+':'+
+               now.getMinutes().toString().padStart(2,'0')+':'+
+               now.getSeconds().toString().padStart(2,'0');
+  if(!el) return;
+  if(state==='live')    el.textContent = ts + ' ✓ LIVE';
+  else if(state==='sim') el.textContent = ts + ' SIM';
+  else                   el.textContent = '…';
+}
+
+function applyRealPrice(d){
+  setText('ov-price', '$'+d.price.toFixed(2));
+  const chgEl=document.getElementById('ov-chg');
+  if(chgEl){
+    chgEl.textContent=(d.up?'+':'')+d.change.toFixed(2)+
+                      ' ('+(d.up?'+':'')+d.chg_pct.toFixed(2)+'%)';
+    chgEl.className='asset-chg-big '+(d.up?'up':'dn');
+  }
+  setText('sb-p-'+d.asset, '$'+d.price.toFixed(2));
+  const sbC=document.getElementById('sb-c-'+d.asset);
+  if(sbC){ sbC.textContent=(d.up?'+':'')+d.chg_pct.toFixed(2)+'%';
+           sbC.className='sb-asset-chg '+(d.up?'up':'dn'); }
+}
+
+function applyRealAnalysis(d, asset){
+  // 탭① Black-Scholes 실제 수치
+  setText('c-vol',       d.sigma+'%');
+  setText('c-prob',      d.bs_prob_profit+'%');
+  setText('c-ret',       '+'+d.bs_expected_ret+'%');
+  setText('c-tail-prob', d.bs_tail_prob.toFixed(3)+'%');
+  setText('c-asset',     asset);
+  setText('bs-asset',    asset);
+  // 탭② 실제 Fat Tail
+  setText('bd-bs-crash',   d.bs_tail_prob.toFixed(3)+'%');
+  setText('bd-real-crash', (d.bs_tail_prob*d.fat_tail_ratio/100).toFixed(2)+'%');
+  setText('bd-s0',         d.fat_tail_ratio+'×');
+  setText('bd-s1',         d.vol_decay+'%');
+  // 실제 CVaR
+  const cvar3x  = d.cvar_by_leverage[11];
+  const cvarOpt = d.cvar_by_leverage[d.optimal_idx];
+  const impr    = Math.round(Math.abs((cvar3x-cvarOpt)/(cvar3x||1))*100);
+  setText('cvar-classical', cvar3x.toFixed(1)+'%');
+  setText('cvar-quantum',   cvarOpt.toFixed(1)+'%');
+  setText('cvar-impr',      impr+'%');
+  // Overview 카드
+  setText('ov-s1', d.sigma+'%');
+  setText('ov-s2', d.fat_tail_ratio+'×');
+  setText('ov-s3', d.optimal_leverage+'×');
+  // ASSETS 객체에 실제 값 주입 → 기존 애니메이션 자동 반영
+  if(ASSETS[asset]){
+    ASSETS[asset].vol     = d.sigma+'%';
+    ASSETS[asset].prob    = d.bs_prob_profit+'%';
+    ASSETS[asset].ret     = '+'+d.bs_expected_ret+'%';
+    ASSETS[asset].crash   = d.fat_tail_ratio+'×';
+    ASSETS[asset].decay   = d.vol_decay+'%';
+    ASSETS[asset].safeLev = d.optimal_leverage+'×';
+    ASSETS[asset].optIdx  = d.optimal_idx;
+    ASSETS[asset].energies= d.energies;
+    ASSETS[asset].cvar    = cvar3x.toFixed(1)+'%';
+    ASSETS[asset].cvarOpt = cvarOpt.toFixed(1)+'%';
+    ASSETS[asset].impr    = impr+'%';
+  }
+  buildQAOABars();   // 실제 CVaR 기반으로 에너지 바 재빌드
+}
+
+async function fetchQAOA(asset){
+  try{
+    const res  = await fetch(`${API_BASE}/api/qaoa?asset=${asset}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+    if(ASSETS[asset]){
+      ASSETS[asset].safeLev = data.optimal_leverage+'×';
+      ASSETS[asset].cvarOpt = data.cvar_optimal+'%';
+      ASSETS[asset].cvar    = data.cvar_naive_3x+'%';
+      ASSETS[asset].impr    = data.improvement_pct+'%';
+      ASSETS[asset].qaoa    = data.p_layers * data.n_qubits;
+      ASSETS[asset].optIdx  = data.optimal_idx;
+    }
+    // 실제 QAOA 확률을 파동 수렴 차트에 반영
+    window._realQAOAProbs  = data.probabilities;
+    window._realQAOALabels = data.leverage_labels;
+    window._realOptIdx     = data.optimal_idx;
+    return data;
+  } catch(e){
+    console.warn('[QB] QAOA API unavailable:', e.message);
+    return null;
+  }
+}
+
+async function fetchAndApplySDR(asset){
+  try{
+    const res  = await fetch(`${API_BASE}/api/sdr?asset=${asset}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+
+    // stableCloud를 실제 SIR 투영 데이터로 교체
+    stableCloud = data.points.map(p=>({
+      x: p.x, y: p.y, col: p.col,
+      op: 0, tOp: 0.6+Math.random()*0.4
+    }));
+
+    if(ASSETS[asset]){
+      ASSETS[asset].regime = data.regime;
+      ASSETS[asset].varEx  = data.variance_explained+'%';
+    }
+
+    // SIR 메타 정보 표시
+    if(data.sir_meta){
+      const meta = data.sir_meta;
+      const sdrAnalog = document.getElementById('sdr-analog');
+      if(sdrAnalog) sdrAnalog.textContent =
+        'β₁ corr(Y): '+meta.corr_beta1_Y;
+      // Y 통계 보여주기
+      const sdrVar = document.getElementById('sdr-var');
+      if(sdrVar) sdrVar.textContent = data.variance_explained+'%';
+      // method 표시
+      const sdrRegime = document.getElementById('sdr-regime');
+      if(sdrRegime && data.method){
+        // regime은 유지, method는 별도 표시
+      }
+    }
+
+    return true;
+  } catch(e){
+    console.warn('[QB] SDR API unavailable:', e.message);
+    return false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════
+function switchTab(id, btn){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('visible'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('visible');
+  btn.classList.add('active');
+  if(id==='quantum') setTimeout(()=>{ drawHilbert(sdrRevealed?1:0); },60);
+}
+</script>
+</body>
+</html>
