@@ -387,7 +387,7 @@ body::after {
 <main class="main">
   <div class="topbar">
     <button class="tab-btn active" onclick="switchTab('overview',this)">Overview</button>
-    <button class="tab-btn" onclick="switchTab('classical',this)">① GBM Risk Model (Log-Normal Baseline)</button>
+    <button class="tab-btn" onclick="switchTab('classical',this)">① GBM Risk Model</button>
     <button class="tab-btn" onclick="switchTab('breakdown',this)">② Where It Breaks</button>
     <button class="tab-btn" onclick="switchTab('quantum',this)">③ Quantum Analysis</button>
     <button class="tab-btn" onclick="switchTab('recommendation',this)">④ Recommendation</button>
@@ -420,7 +420,7 @@ body::after {
       <div class="card stat-box">
         <div class="stat-val" id="ov-s1">42%</div>
         <div class="stat-key">30-Day Realized Vol</div>
-        <div class="stat-src">GBM (Log-Normal) σ</div>
+        <div class="stat-src">Annualized Volatility σ (GBM)</div>
       </div>
       <div class="card stat-box">
         <div class="stat-val text-red" id="ov-s2">8.3×</div>
@@ -490,8 +490,8 @@ body::after {
     </div>
 
     <div style="background:rgba(0,216,120,.05);border:1px solid rgba(0,216,120,.15);padding:16px 20px;">
-      <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:6px;">✓ Classical verdict for <span id="c-asset">TQQQ</span>: Hold. Expected return positive. Risk appears manageable.</div>
-      <div style="font-size:11px;color:var(--muted);">Under log-normal assumption, <span id="c-tail-prob">0.3%</span> probability of losing more than 30% in a single month. Model looks good. But is the assumption valid?</div>
+      <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:6px;">✓ GBM (Log-Normal) verdict for <span id="c-asset">TQQQ</span>: Under normal distribution assumption, risk appears manageable. See Tab ② for why this understates tail risk.</div>
+      <div style="font-size:11px;color:var(--muted);">Under log-normal assumption, <span id="gbm-tail-prob">0.3%</span> probability of losing more than 30% in a single month. Model looks good. But is the assumption valid?</div>
     </div>
   </div>
 
@@ -503,7 +503,7 @@ body::after {
     <div class="vs-banner">
       <div class="vs-side classical">
         <div class="vs-label red">GBM LOG-NORMAL PREDICTS</div>
-        <div class="vs-metric text-green" id="bd-bs-crash">0.3%</div>
+        <div class="vs-metric text-green" id="bd-gbm-crash">0.3%</div>
         <div class="vs-desc">monthly drawdown &gt;30% probability</div>
         <div class="vs-metric text-green mt16" id="bd-bs-tail">Normal</div>
         <div class="vs-desc">tail behavior — thin, symmetric</div>
@@ -983,13 +983,13 @@ body::after {
       <div class="chart-h180"><canvas id="cvar-chart"></canvas></div>
       <div class="grid2 mt16">
         <div style="padding:14px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR — LOG-NORMAL ASSUMPTION</div>
+          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR (Log-Normal)</div>
           <div class="mono" style="font-size:18px;font-weight:700;color:var(--red)" id="cvar-classical">−11%</div>
           <div style="font-size:11px;color:var(--muted);">Single log-normal distribution. Crash regime (p=53%) entirely absent from calculation.</div>
         </div>
         <div style="padding:14px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
           <div style="font-size:10px;color:var(--gold);font-family:'Space Mono',monospace;margin-bottom:6px;">REGIME-MIXTURE CVaR — MULTI STATE</div>
-          <div class="mono" style="font-size:18px;font-weight:700;color:var(--gold)" id="cvar-quantum">−37%</div>
+          <div class="mono" style="font-size:18px;font-weight:700;color:var(--gold)" id="cvar-hist">−37%</div>
           <div style="font-size:11px;color:var(--muted);">CVaR^{mix} = 0.53·CVaR_crash + 0.29·CVaR_elev + 0.18·CVaR_safe. <span id="cvar-impr" class="text-red">3.4× larger</span> than BS.</div>
         </div>
       </div>
@@ -1059,7 +1059,7 @@ body::after {
       <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;">
         <div>
           <div class="rec-lev" id="rec-lev">—</div>
-          <div class="rec-sub">QAOA + CVaR OPTIMAL LEVERAGE</div>
+          <div class="rec-sub">QAOA-SELECTED LEVERAGE (Historical CVaR objective)</div>
         </div>
         <div style="flex:1;min-width:200px;">
           <div class="grid3" id="rec-metrics" style="margin-bottom:0">
@@ -1295,7 +1295,7 @@ function applyAsset(){
   setText('c-ret', d.ret);
   setText('c-vol', d.vol);
   setText('c-prob', d.prob);
-  setText('c-tail-prob', d.tailProb);
+  setText('gbm-tail-prob', d.tailProb);
   setText('c-asset', current);
   // BREAKDOWN
   setText('bd-bs-crash', d.tailProb);
@@ -1308,7 +1308,7 @@ function applyAsset(){
   setText('dm10', dm[2]); setText('dm11', dm[3]);
   // CVaR
   setText('cvar-classical', d.cvar);
-  setText('cvar-quantum', d.cvarOpt);
+  setText('cvar-hist', d.cvarOpt);
   setText('cvar-impr', d.impr);
   // SDR result
   setText('sdr-regime', d.regime);
@@ -1926,7 +1926,7 @@ async function runQAOA(){
   // RESULT CARD + counters
   setTimeout(()=>{
     document.getElementById('terminal-cursor').style.display='none';
-    document.getElementById('rec-status').textContent=`✓ QAOA COMPLETE — ${d.qaoa} ITERATIONS · CVaR₅% MINIMIZED`;
+    document.getElementById('rec-status').textContent=`✓ QAOA COMPLETE — QUBO formulation solved · Historical CVaR₅% minimized`;
     document.getElementById('rec-lev').textContent=d.safeLev;
     document.getElementById('rec-m0').textContent=d.cvar;
     document.getElementById('rec-m1').textContent=d.cvarOpt;
@@ -2334,11 +2334,11 @@ function applyRealAnalysis(d, asset){
   setText('c-vol',       d.sigma+'%');
   setText('c-prob',      d.bs_prob_profit+'%');
   setText('c-ret',       '+'+d.bs_expected_ret+'%');
-  setText('c-tail-prob', d.bs_tail_prob.toFixed(3)+'%');
+  setText('gbm-tail-prob', d.bs_tail_prob.toFixed(3)+'%');
   setText('c-asset',     asset);
   setText('bs-asset',    asset);
   // 탭② 실제 Fat Tail
-  setText('bd-bs-crash',   d.bs_tail_prob.toFixed(3)+'%');
+  setText('bd-gbm-crash',   d.bs_tail_prob.toFixed(3)+'%');
   setText('bd-real-crash', (d.bs_tail_prob*d.fat_tail_ratio/100).toFixed(2)+'%');
   setText('bd-s0',         d.fat_tail_ratio+'×');
   setText('bd-s1',         d.vol_decay+'%');
@@ -2347,7 +2347,7 @@ function applyRealAnalysis(d, asset){
   const cvarOpt = d.cvar_by_leverage[d.optimal_idx];
   const impr    = Math.round(Math.abs((cvar3x-cvarOpt)/(cvar3x||1))*100);
   setText('cvar-classical', cvar3x.toFixed(1)+'%');
-  setText('cvar-quantum',   cvarOpt.toFixed(1)+'%');
+  setText('cvar-hist',   cvarOpt.toFixed(1)+'%');
   setText('cvar-impr',      impr+'%');
   // Overview 카드
   setText('ov-s1', d.sigma+'%');
@@ -2383,7 +2383,7 @@ function applyRealStress(data){
     if(i > 2 || c.error) return;
     const id = ids[i];
     // 숫자 업데이트
-    setText(id+'-bs',  (c.bs_cvar    || '—')+'%');
+    setText(id+'-gbm',  (c.bs_cvar    || '—')+'%');
     setText(id+'-reg', (c.regime_cvar|| '—')+'%');
     setText(id+'-act', (c.actual     || '—')+'%');
     // 언더에스티메이트
