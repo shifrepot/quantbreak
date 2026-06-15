@@ -1,7 +1,9 @@
 from http.server import BaseHTTPRequestHandler
-import json, yfinance as yf, numpy as np
+import json, numpy as np
 from scipy.stats import norm
 from urllib.parse import urlparse, parse_qs
+import urllib.request, time
+from datetime import datetime, timedelta
 
 TICKER_MAP = {
     "TQQQ": "TQQQ", "SOXL": "SOXL", "SQQQ": "SQQQ",
@@ -9,15 +11,26 @@ TICKER_MAP = {
 }
 LEVERAGES = [0.5, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.5, 2.8, 3.0]
 
-def get_closes(sym, period="65d"):
-    tk   = yf.Ticker(sym)
-    hist = tk.history(period=period)
-    if hasattr(hist.columns, "levels"):
-        hist.columns = hist.columns.get_level_values(0)
-    closes = hist["Close"].dropna()
-    if len(closes) < 10:
-        raise ValueError(f"Not enough data: {len(closes)} rows")
-    return closes
+def fetch_yahoo(sym, days=70):
+    end   = int(time.time())
+    start = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+    url   = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+        f"?interval=1d&period1={start}&period2={end}"
+    )
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        import json as _j
+        data = _j.loads(resp.read())
+    result = data["chart"]["result"][0]
+    closes = result["indicators"]["quote"][0]["close"]
+    prices = [c for c in closes if c is not None]
+    if len(prices) < 10:
+        raise ValueError(f"Not enough data: {len(prices)}")
+    return prices
 
 def cvar(returns, alpha=0.05):
     var  = np.percentile(returns, alpha * 100)
@@ -31,41 +44,41 @@ class handler(BaseHTTPRequestHandler):
         sym   = TICKER_MAP.get(asset, asset)
 
         try:
-            closes  = get_closes(sym, "65d")
-            returns = closes.pct_change().dropna().values
+            prices  = fetch_yahoo(sym, days=70)
+            returns = np.array([
+                (prices[i]-prices[i-1])/prices[i-1]
+                for i in range(1, len(prices))
+            ])
 
             sigma = float(np.std(returns) * np.sqrt(252))
-            S     = float(closes.iloc[-1])
+            S     = float(prices[-1])
             K, T, r = S, 0.5, 0.05
 
             d1 = (np.log(S/K) + (r + sigma**2/2)*T) / (sigma*np.sqrt(T))
             d2 = d1 - sigma*np.sqrt(T)
-            prob_profit    = float(norm.cdf(d2))
-            bs_expected_ret = float((np.exp(r*T) - 1) * 100)
-            monthly_sigma  = sigma / np.sqrt(12)
-            bs_tail_prob   = float(norm.cdf(-0.30 / monthly_sigma) * 100)
+            prob_profit     = float(norm.cdf(d2))
+            bs_expected_ret = float((np.exp(r*T)-1)*100)
+            monthly_sigma   = sigma / np.sqrt(12)
+            bs_tail_prob    = float(norm.cdf(-0.30/monthly_sigma)*100)
 
-            # Fat Tail
             n = len(returns)
             monthly_rets = [
-                float(np.prod(1 + returns[i:i+21]) - 1)
+                float(np.prod(1+returns[i:i+21])-1)
                 for i in range(0, n-21, 5)
             ]
-            crash_count   = sum(1 for r_ in monthly_rets if r_ < -0.30)
-            actual_tail   = crash_count / max(len(monthly_rets), 1) * 100
-            fat_tail_ratio = round(actual_tail / bs_tail_prob, 1) if bs_tail_prob > 0 else 8.3
+            crash_count    = sum(1 for r_ in monthly_rets if r_ < -0.30)
+            actual_tail    = crash_count / max(len(monthly_rets),1) * 100
+            fat_tail_ratio = round(actual_tail/bs_tail_prob, 1) if bs_tail_prob > 0 else 8.3
 
-            # Vol Decay
-            lev3 = float(np.prod(1 + returns*3) - 1) * 100
-            lev1 = float(np.prod(1 + returns)   - 1) * 100
+            lev3      = float(np.prod(1+returns*3)-1)*100
+            lev1      = float(np.prod(1+returns)-1)*100
             vol_decay = round(lev3 - lev1*3, 1)
 
-            # CVaR by leverage
-            cvar_by_lev  = []
-            mean_by_lev  = []
+            cvar_by_lev = []
+            mean_by_lev = []
             for lev in LEVERAGES:
                 lr = returns * lev
-                cvar_by_lev.append(round(cvar(lr) * 100, 2))
+                cvar_by_lev.append(round(cvar(lr)*100, 2))
                 mean_by_lev.append(float(np.mean(lr)))
 
             feasible = [(i, cvar_by_lev[i]) for i in range(len(LEVERAGES)) if mean_by_lev[i] > 0]
