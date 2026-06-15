@@ -188,10 +188,19 @@ class handler(BaseHTTPRequestHandler):
             p_elev  = round(regime_counts["elev"]  / total, 4)
             p_safe  = round(regime_counts["safe"]  / total, 4)
 
-            # ── Density Matrix 대각항 (실제 레짐 확률)
-            # ρ = p_crash|crash⟩⟨crash| + p_elev|elev⟩⟨elev| + p_safe|safe⟩⟨safe|
-            # 비대각항: coherence = analytical parameter
-            coh = round(min(p_safe, p_crash) * 0.4, 4)
+            # ── Density Matrix
+            # 대각항: 실제 레짐 확률
+            # 비대각항: 실제 레짐 전환 빈도 (coherence)
+            # regime labels per time point
+            regime_labels = np.where(Y_cut <= y_q33, 0,
+                            np.where(Y_cut <= y_q66, 1, 2))
+            # crash(0) ↔ safe(2) 전환 빈도
+            transitions_cs = sum(
+                1 for i in range(len(regime_labels)-1)
+                if (regime_labels[i]==0 and regime_labels[i+1]==2) or
+                   (regime_labels[i]==2 and regime_labels[i+1]==0)
+            )
+            coh = round(transitions_cs / max(len(regime_labels)-1, 1), 4)
             density_matrix = {
                 "p_crash": p_crash,
                 "p_elev":  p_elev,

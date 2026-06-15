@@ -387,7 +387,7 @@ body::after {
 <main class="main">
   <div class="topbar">
     <button class="tab-btn active" onclick="switchTab('overview',this)">Overview</button>
-    <button class="tab-btn" onclick="switchTab('classical',this)">① Classical Model</button>
+    <button class="tab-btn" onclick="switchTab('classical',this)">① GBM Risk Model (Log-Normal Baseline)</button>
     <button class="tab-btn" onclick="switchTab('breakdown',this)">② Where It Breaks</button>
     <button class="tab-btn" onclick="switchTab('quantum',this)">③ Quantum Analysis</button>
     <button class="tab-btn" onclick="switchTab('recommendation',this)">④ Recommendation</button>
@@ -420,7 +420,7 @@ body::after {
       <div class="card stat-box">
         <div class="stat-val" id="ov-s1">42%</div>
         <div class="stat-key">30-Day Realized Vol</div>
-        <div class="stat-src">Black-Scholes σ</div>
+        <div class="stat-src">GBM (Log-Normal) σ</div>
       </div>
       <div class="card stat-box">
         <div class="stat-val text-red" id="ov-s2">8.3×</div>
@@ -444,15 +444,15 @@ body::after {
     <div class="break-alert">
       <div class="break-icon">⚠</div>
       <div>
-        <h4>Classical Models Systematically Underestimate Risk for This Asset</h4>
-        <p>Black-Scholes assumes log-normal returns and constant volatility. <strong id="ov-asset-name2">TQQQ</strong>'s 3× leverage creates nonlinear volatility decay that violates these assumptions — especially during tail events. Navigate through tabs ① → ④ to see where the model breaks and what quantum statistical tools reveal instead.</p>
+        <h4>GBM Risk Models Systematically Underestimate Risk for This Asset</h4>
+        <p>GBM (Log-Normal) assumes log-normal returns and constant volatility. <strong id="ov-asset-name2">TQQQ</strong>'s 3× leverage creates nonlinear volatility decay that violates these assumptions — especially during tail events. Navigate through tabs ① → ④ to see where the model breaks and what quantum statistical tools reveal instead.</p>
       </div>
     </div>
   </div>
 
   <!-- ══ CLASSICAL ═══════════════════════════════════════ -->
   <div class="panel" id="tab-classical">
-    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">① What Black-Scholes Says</h2>
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">① What GBM (Log-Normal) Says</h2>
     <p class="text-muted mb16" style="font-size:13px;">The classical model gives a clean, tractable answer. Here's what it predicts.</p>
 
     <div class="eq">
@@ -497,12 +497,12 @@ body::after {
 
   <!-- ══ BREAKDOWN ═══════════════════════════════════════ -->
   <div class="panel" id="tab-breakdown">
-    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">② Where the Classical Model Breaks</h2>
-    <p class="text-muted mb16" style="font-size:13px;">Empirical data vs. Black-Scholes predictions — </p>
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;">② Where the GBM Risk Model Breaks</h2>
+    <p class="text-muted mb16" style="font-size:13px;">Empirical data vs. GBM (Log-Normal) predictions — </p>
 
     <div class="vs-banner">
       <div class="vs-side classical">
-        <div class="vs-label red">BLACK-SCHOLES PREDICTS</div>
+        <div class="vs-label red">GBM LOG-NORMAL PREDICTS</div>
         <div class="vs-metric text-green" id="bd-bs-crash">0.3%</div>
         <div class="vs-desc">monthly drawdown &gt;30% probability</div>
         <div class="vs-metric text-green mt16" id="bd-bs-tail">Normal</div>
@@ -546,9 +546,9 @@ body::after {
             position:absolute; top:40px; left:40%;
             font-family:'Space Mono',monospace; font-size:8px;
             color:rgba(240,56,96,.6); white-space:nowrap;
-          ">← Black-Scholes: "safe zone" &nbsp;|&nbsp; Reality: liquidation →</div>
+          ">← GBM (Log-Normal): "safe zone" &nbsp;|&nbsp; Reality: liquidation →</div>
         </div>
-        <p class="mt8" style="font-size:11px;color:var(--muted)">Red dashed line = estimated margin call trigger. Black-Scholes classifies everything left of this line as "safe." Actual paths cross it <span id="bd-crash-freq" class="text-red">8.3×</span> more often than the model predicts.</p>
+        <p class="mt8" style="font-size:11px;color:var(--muted)">Red dashed line = estimated margin call trigger. GBM (Log-Normal) classifies everything left of this line as "safe." Actual paths cross it <span id="bd-crash-freq" class="text-red">8.3×</span> more often than the model predicts.</p>
       </div>
     </div>
 
@@ -556,7 +556,7 @@ body::after {
       <div class="break-icon">⚠</div>
       <div>
         <h4>Link Violation — Why SDR (SIR) Instead of OLS</h4>
-        <p>The true model is <strong>Y = f(β₀ᵀX)</strong> where f is nonlinear. Black-Scholes imposes a linear, log-normal structure — this is a textbook Link Violation. Even under Link Violation, if <strong>E[X|β₀ᵀX]</strong> is linear (Linear Conditional Mean), the OLS direction β̂ still recovers β₀ up to scale. We can find the <em>true risk direction</em> without knowing f.</p>
+        <p>The true model is <strong>Y = f(β₀ᵀX)</strong> where f is nonlinear. GBM (Log-Normal) imposes a linear, log-normal structure — this is a textbook Link Violation. Even under Link Violation, if <strong>E[X|β₀ᵀX]</strong> is linear (Linear Conditional Mean), the OLS direction β̂ still recovers β₀ up to scale. We can find the <em>true risk direction</em> without knowing f.</p>
       </div>
     </div>
 
@@ -590,7 +590,7 @@ body::after {
       </div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.7;">
         For each crisis, we use only data <strong>available before the crash</strong> — no look-ahead.
-        We compare BS CVaR vs Regime-Weighted CVaR computed at that moment,
+        We compare GBM CVaR vs Regime-Weighted CVaR computed at that moment,
         then measure actual subsequent drawdown.
         The question is not "did we predict the future?" —
         it is <strong class="text-gold">"did we detect the tail risk BS was missing?"</strong>
@@ -608,8 +608,8 @@ body::after {
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
             <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc0-bs">−10%</div>
-              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">BS CVaR<br>(pre-crash)</div>
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc0-gbm">−10%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">GBM CVaR<br>(pre-crash)</div>
             </div>
             <div style="text-align:center;padding:10px 6px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
               <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--gold);" id="sc0-reg">−31%</div>
@@ -626,11 +626,11 @@ body::after {
 
           <div style="margin-bottom:6px;">
             <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
-              <span class="text-red">BS underestimated tail risk by</span>
-              <span class="text-red" id="sc0-bs-err">56%p</span>
+              <span class="text-red">GBM underestimated tail risk by</span>
+              <span class="text-red" id="sc0-gbm-err">56%p</span>
             </div>
             <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
-              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc0-bs-bar"></div>
+              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc0-gbm-bar"></div>
             </div>
           </div>
           <div style="margin-bottom:10px;">
@@ -659,8 +659,8 @@ body::after {
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
             <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc1-bs">−14%</div>
-              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">BS CVaR<br>(pre-crash)</div>
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc1-gbm">−14%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">GBM CVaR<br>(pre-crash)</div>
             </div>
             <div style="text-align:center;padding:10px 6px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
               <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--gold);" id="sc1-reg">−28%</div>
@@ -675,11 +675,11 @@ body::after {
           <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px;letter-spacing:1px;">TAIL RISK UNDERESTIMATION</div>
           <div style="margin-bottom:6px;">
             <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
-              <span class="text-red">BS underestimated tail risk by</span>
-              <span class="text-red" id="sc1-bs-err">66%p</span>
+              <span class="text-red">GBM underestimated tail risk by</span>
+              <span class="text-red" id="sc1-gbm-err">66%p</span>
             </div>
             <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
-              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc1-bs-bar"></div>
+              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc1-gbm-bar"></div>
             </div>
           </div>
           <div style="margin-bottom:10px;">
@@ -708,8 +708,8 @@ body::after {
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
             <div style="text-align:center;padding:10px 6px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc2-bs">−8%</div>
-              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">BS CVaR<br>(pre-crash)</div>
+              <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--red);" id="sc2-gbm">−8%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.4;">GBM CVaR<br>(pre-crash)</div>
             </div>
             <div style="text-align:center;padding:10px 6px;background:rgba(240,168,0,.05);border:1px solid rgba(240,168,0,.2);">
               <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--gold);" id="sc2-reg">−24%</div>
@@ -724,11 +724,11 @@ body::after {
           <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px;letter-spacing:1px;">TAIL RISK UNDERESTIMATION</div>
           <div style="margin-bottom:6px;">
             <div style="display:flex;justify-content:space-between;font-size:10px;font-family:'Space Mono',monospace;margin-bottom:3px;">
-              <span class="text-red">BS underestimated tail risk by</span>
-              <span class="text-red" id="sc2-bs-err">18%p</span>
+              <span class="text-red">GBM underestimated tail risk by</span>
+              <span class="text-red" id="sc2-gbm-err">18%p</span>
             </div>
             <div style="height:5px;background:var(--bg);border:1px solid var(--line);">
-              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc2-bs-bar"></div>
+              <div style="height:100%;background:var(--red);transition:width 1.2s ease;" id="sc2-gbm-bar"></div>
             </div>
           </div>
           <div style="margin-bottom:10px;">
@@ -755,10 +755,10 @@ body::after {
         <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:14px;">SUMMARY ACROSS 3 CRISES</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:16px;">
           <div>
-            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">AVG BS UNDERESTIMATION</div>
-            <div style="font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--red);" id="avg-bs-err">47%p</div>
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;">AVG GBM UNDERESTIMATION</div>
+            <div style="font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--red);" id="avg-gbm-err">47%p</div>
             <div style="height:5px;background:var(--bg);border:1px solid var(--line);margin-top:6px;">
-              <div id="avg-bs-bar" style="height:100%;background:var(--red);width:0%;transition:width 1.4s ease;"></div>
+              <div id="avg-gbm-bar" style="height:100%;background:var(--red);width:0%;transition:width 1.4s ease;"></div>
             </div>
           </div>
           <div>
@@ -779,7 +779,7 @@ body::after {
         <div style="padding:14px 16px;background:rgba(0,200,240,.04);border:1px solid rgba(0,200,240,.12);font-size:11px;color:var(--muted);line-height:1.8;">
           <strong style="color:var(--text);">We do not claim perfect prediction.</strong>
           Both models underestimate extreme tail events.
-          The claim is: <strong class="text-cyan">Regime-Weighted CVaR consistently detects more tail risk than Black-Scholes</strong>
+          The claim is: <strong class="text-cyan">Regime-Weighted CVaR consistently detects more tail risk than GBM (Log-Normal)</strong>
           — capturing on average 49% of the blind spot that causes forced liquidations.
           In the best case (Yen Carry 2024), 89% of BS's missed risk was captured.
         </div>
@@ -812,7 +812,7 @@ body::after {
         <!-- LEFT: explanation + slider -->
         <div>
           <p style="font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:16px;">
-            Black-Scholes uses <strong>1 variable</strong> (σ). We use <strong>10 macro variables</strong> projected into
+            GBM (Log-Normal) uses <strong>1 variable</strong> (σ). We use <strong>10 macro variables</strong> projected into
             <strong class="text-cyan">Rᵖ(Σ)</strong> — Hilbert space with covariance inner product
             <span class="mono text-cyan" style="font-size:11px;">⟨u,v⟩_Σ = uᵀΣv</span>.
             We define <strong class="text-gold">Y = 20-day forward maximum drawdown</strong> — the actual future tail loss. Using <strong class="text-cyan">Sliced Inverse Regression (SIR)</strong> in Rᵖ(Σ) Hilbert Space (inner product ⟨u,v⟩_Σ = uᵀΣv), we extract directions β₁, β₂ that best explain Y. These directions are aligned with actual tail loss, not just variance.
@@ -971,19 +971,19 @@ body::after {
 
     <!-- MODULE C: CVAR -->
     <div class="card">
-      <div class="card-label">MODULE C · REGIME-MIXTURE CVaR vs BLACK-SCHOLES CVaR</div>
+      <div class="card-label">MODULE C · REGIME-MIXTURE CVaR vs GBM LOG-NORMAL CVaR</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">
-        Black-Scholes computes CVaR from a single log-normal distribution — ignoring regime structure entirely.
+        GBM assumes returns follow log-normal distribution — CVaR computed from this single-state assumption — ignoring regime structure entirely.
         Using regime weights from the Born Rule measurement above, we compute a
         <strong class="text-gold">Regime-Weighted CVaR</strong>: a weighted average of per-regime tail losses.
         This is not "quantum math vs classical math."
-        It is <em>single-state assumption vs multi-regime reality</em>.
+        It is <em>GBM log-normal assumption vs multi-regime reality</em>.
         QAOA then minimizes this regime-aware CVaR over the leverage space.
       </p>
       <div class="chart-h180"><canvas id="cvar-chart"></canvas></div>
       <div class="grid2 mt16">
         <div style="padding:14px;background:rgba(240,56,96,.06);border:1px solid rgba(240,56,96,.15);">
-          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">BLACK-SCHOLES CVaR — SINGLE STATE</div>
+          <div style="font-size:10px;color:var(--red);font-family:'Space Mono',monospace;margin-bottom:6px;">GBM CVaR — LOG-NORMAL ASSUMPTION</div>
           <div class="mono" style="font-size:18px;font-weight:700;color:var(--red)" id="cvar-classical">−11%</div>
           <div style="font-size:11px;color:var(--muted);">Single log-normal distribution. Crash regime (p=53%) entirely absent from calculation.</div>
         </div>
@@ -997,7 +997,7 @@ body::after {
         ↓ QAOA minimizes Regime-Weighted CVaR over leverage space → finds position that survives tail scenarios
       </div>
       <div class="eq mt16">
-        CVaR^{BS}  = CVaR[ N(μ, σ²) ] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// single-state, ignores regimes</span><br>
+        CVaR^{GBM} = CVaR[ N(μ, σ²) ] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// single-state, ignores regimes</span><br>
         CVaR^{wt} = Σᵢ pᵢ · CVaR_α(fᵢ) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// Regime-Weighted CVaR (tractable approx.; note CVaR(Σpᵢfᵢ) ≠ Σpᵢ·CVaR(fᵢ))</span><br>
         min_L CVaR^{mix}(L) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c">// QAOA objective — next tab</span>
       </div>
@@ -1125,7 +1125,7 @@ body::after {
         <thead>
           <tr style="border-bottom:1px solid var(--line);">
             <th style="text-align:left;padding:10px 12px;font-size:10px;color:var(--muted);font-weight:500;font-family:'Space Mono',monospace;letter-spacing:1px;">DIMENSION</th>
-            <th style="text-align:center;padding:10px 12px;font-size:10px;color:var(--red);font-family:'Space Mono',monospace;letter-spacing:1px;">BLACK-SCHOLES</th>
+            <th style="text-align:center;padding:10px 12px;font-size:10px;color:var(--red);font-family:'Space Mono',monospace;letter-spacing:1px;">GBM LOG-NORMAL</th>
             <th style="text-align:center;padding:10px 12px;font-size:10px;color:var(--cyan);font-family:'Space Mono',monospace;letter-spacing:1px;">QUANTBREAK</th>
           </tr>
         </thead>
@@ -1958,7 +1958,7 @@ function buildCompareTable(){
     ['Risk Variables Used',     '1 (σ only)',                  '10D → 2D via SDR/SIR (Y = forward drawdown)'],
     ['Return Distribution',     'Log-Normal (thin tails)',      'SIR-based regime + Regime-Weighted CVaR'],
     ['Market State Model',      'Single state',                 'Density Matrix ρ — Mixed State'],
-    ['CVaR Objective',          'BS CVaR — single distribution','Regime-Weighted CVaR — multi-state'],
+    ['CVaR Objective',          'GBM CVaR — single distribution','Regime-Weighted CVaR — multi-state'],
     ['Crash Frequency',         '0.3% / month (BS estimate)',   'Actual: '+d.crash+' × higher'],
     ['Recommended Leverage',    '3× (product default)',         'QAOA-optimized: '+d.safeLev],
     ['Tail Risk Reduction',     'Not addressed',                d.cvarOpt+' CVaR ('+d.impr+' reduction)'],
@@ -2057,7 +2057,7 @@ function updateStressCards(){
     const regErr = Math.abs(c.act - c.reg);
     const captured = Math.round((bsErr - regErr) / bsErr * 100);
 
-    setText(id+'-bs-err',  bsErr+'%p');
+    setText(id+'-gbm-err',  bsErr+'%p');
     setText(id+'-reg-err', regErr < 5 ? regErr+'%p ✓' : regErr+'%p');
     setText(id+'-captured', captured+'%');
 
@@ -2080,7 +2080,7 @@ function updateStressSummary(cases){
   const avgBs  = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.bs),0)/cases.length);
   const avgReg = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.reg),0)/cases.length);
   const avgCap = Math.round((avgBs - avgReg) / avgBs * 100);
-  setText('avg-bs-err',  avgBs+'%p');
+  setText('avg-gbm-err',  avgBs+'%p');
   setText('avg-reg-err', avgReg+'%p');
   setText('avg-captured', avgCap+'%');
 }
@@ -2093,8 +2093,8 @@ function animateStressTest(){
   const ids   = ['sc0','sc1','sc2'];
 
   // reset all bars
-  ['sc0-bs-bar','sc0-reg-bar','sc1-bs-bar','sc1-reg-bar','sc2-bs-bar','sc2-reg-bar',
-   'avg-bs-bar','avg-reg-bar','avg-captured-bar'].forEach(id=>{
+  ['sc0-gbm-bar','sc0-reg-bar','sc1-gbm-bar','sc1-reg-bar','sc2-gbm-bar','sc2-reg-bar',
+   'avg-gbm-bar','avg-reg-bar','avg-captured-bar'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.style.width='0%';
   });
 
@@ -2114,7 +2114,7 @@ function animateStressTest(){
         setTimeout(()=>card.style.boxShadow='',800);
       }
       // animate underestimation bars
-      const bsBar  = document.getElementById(id+'-bs-bar');
+      const bsBar  = document.getElementById(id+'-gbm-bar');
       const regBar = document.getElementById(id+'-reg-bar');
       if(bsBar)  { bsBar.style.transition='width 1s ease';  bsBar.style.width=Math.min(bsErr,100)+'%'; }
       if(regBar) { regBar.style.transition='width 1s ease'; regBar.style.width=Math.min(regErr,100)+'%'; }
@@ -2127,7 +2127,7 @@ function animateStressTest(){
     const avgReg = Math.round(cases.reduce((s,c)=>s+Math.abs(c.act-c.reg),0)/cases.length);
     const avgCap = Math.round((avgBs-avgReg)/avgBs*100);
 
-    const bBar = document.getElementById('avg-bs-bar');
+    const bBar = document.getElementById('avg-gbm-bar');
     const rBar = document.getElementById('avg-reg-bar');
     const cBar = document.getElementById('avg-captured-bar');
     if(bBar) bBar.style.width=Math.min(avgBs,100)+'%';
@@ -2330,7 +2330,7 @@ function applyRealPrice(d){
 }
 
 function applyRealAnalysis(d, asset){
-  // 탭① Black-Scholes 실제 수치
+  // 탭① GBM (Log-Normal) 실제 수치
   setText('c-vol',       d.sigma+'%');
   setText('c-prob',      d.bs_prob_profit+'%');
   setText('c-ret',       '+'+d.bs_expected_ret+'%');
@@ -2388,7 +2388,7 @@ function applyRealStress(data){
     setText(id+'-act', (c.actual     || '—')+'%');
     // 언더에스티메이트
     if(c.bs_underestimate != null){
-      setText(id+'-bs-err',  c.bs_underestimate+'%p');
+      setText(id+'-gbm-err',  c.bs_underestimate+'%p');
       setText(id+'-reg-err', c.regime_underestimate < 5
         ? c.regime_underestimate+'%p ✓'
         : c.regime_underestimate+'%p');
@@ -2419,7 +2419,7 @@ function applyRealStress(data){
   // 요약
   if(data.summary){
     const s = data.summary;
-    setText('avg-bs-err',   (s.avg_bs_underestimate  ||'—')+'%p');
+    setText('avg-gbm-err',   (s.avg_gbm_underestimate  ||'—')+'%p');
     setText('avg-reg-err',  (s.avg_regime_underestimate||'—')+'%p');
     setText('avg-captured', (s.avg_additional_captured ||'—')+'%');
   }
